@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.cmh.psycare.mapper.AdminDashboardMapper">
+
+    <!--
+      按天聚合测评量与平均分。
+      去标识化：只做聚合，不 SELECT 任何可定位到个人的字段（resident_id / real_name / phone）。
+      走 GROUP BY DATE(created_at)，结果只覆盖有数据的日期，缺失日期由 Service 补零。
+    -->
+    <select id="selectDailyTrend" resultType="com.cmh.psycare.dto.TrendPoint">
+        SELECT DATE(created_at)          AS date,
+               COUNT(*)                  AS count,
+               ROUND(AVG(total_score), 1) AS avgScore
+        FROM assessment
+        WHERE created_at &gt;= #{since}
+        GROUP BY DATE(created_at)
+        ORDER BY date
+    </select>
+
+</mapper>

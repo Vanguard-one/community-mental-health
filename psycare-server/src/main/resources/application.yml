@@ -1,0 +1,234 @@
+server:
+  port: 18989
+  servlet:
+    context-path: /api
+
+spring:
+  application:
+    name: psycare
+  # ===== 本地密钥的载入点 =====
+  # 真实 API Key **不进本文件**：本仓库要推送到 GitHub，写入即等同于公开泄露。
+  # 本地密钥放在仓库根的 application-local.yml（已被 .gitignore 排除），此处按需载入：
+  #   1) optional: 前缀 → 文件不存在也照常启动，不报错；
+  #   2) 路径按 JVM 工作目录解析。实测工作目录 = 仓库根
+  #      （证据：psycare.upload.dir 写的 ./data/uploads，实际落盘在仓库根的 data/uploads）；
+  #   3) 模板见 application-local.yml.example，克隆后复制一份填自己的 Key 即可。
+  # 缺失时后果有限：两个 api-key 的 getter 都是 null 安全的（返回空串），
+  # 启动探活打一行 ERROR 提示「AI 将全部走降级话术」，不影响服务启动与其余功能。
+  config:
+    import: optional:file:./application-local.yml
+  datasource:
+    url: jdbc:mysql://localhost:3306/psycare?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: root
+    password: 123456
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      password:
+      database: 0
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: Asia/Shanghai
+  # 文件上传的容器层限制。**注意与 psycare.upload.max-size-mb 是两层限制**：
+  # 这里超限时 Spring 直接抛 MaxUploadSizeExceededException（表现为 413），
+  # 进不到 Controller，也就给不出中文提示。所以业务层的值必须 <= 这里的值 ——
+  # 否则用户看到的永远是 413，而我们精心写的「不能超过 N MB」永远不会触发。
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 12MB
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+  global-config:
+    banner: false
+    db-config:
+      # 逻辑删除字段名必须是「实体里真实存在的属性」才会生效。
+      # 历史上这里写的是 deleted，而 15 个实体无一含该字段 → 配置形同虚设，
+      # removeById 实际执行物理 DELETE。拆分到用户表后正式启用软删，故改名。
+      logic-delete-field: isDeleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+  mapper-locations: classpath*:/mapper/**/*.xml
+
+# ===== 业务自定义配置 =====
+psycare:
+  jwt:
+    secret: psycare-community-mental-health-secret-key-please-change-in-prod-0123456789
+    expire-hours: 24
+  # AI / LLM —— 全部走 OpenAI 兼容协议，换供应商只改本节
+  # 约定：base-url 到版本段为止，path 从版本段之后开始（避免双拼 /v1 报 404）
+  llm:
+    provider: openai-compat    # 标识用；协议适配由 AiChatClient 实现类的条件装配决定
+    base-url: https://api.deepseek.com/v1
+    path: /chat/completions
+    models-path:               # 留空则由 path 推导：去掉 path 末尾两段（资源+动作）再接 /models
+                               #   本配置 /chat/completions → /models（base-url 已含 /v1）
+                               #   path 自带版本段时 /v1/chat/completions → /v1/models
+                               # 探活失败时日志会打出完整 URL，照它填这里最直接
+    # 密钥**不在本文件**，由仓库根的 application-local.yml 提供（载入点见文件顶部 spring.config.import）。
+    # 【为什么改成这样】原先是直写，好处是「clone 下来就能跑」；但本仓库要推 GitHub，
+    #   直写等于把 Key 公开。现在仓库里零密钥，本地行为完全不变。
+    # 也可用外部覆盖（无需改任何文件）：环境变量 PSYCARE_LLM_API_KEY
+    # 或 JVM 参数 -DPSYCARE_LLM_API_KEY=xxx，优先级都高于 yml。
+    # 缺失时启动探活会打一行 ERROR 说明「AI 将全部走降级话术」。
+    # ⚠️ 旧别名 deepseek-chat / deepseek-reasoner 已于 2026-07-24 退役，调用直接失败且无回退。
+    # 服务端 /models 实际返回：deepseek-flash（= DeepSeek-V4.1-Flash）、deepseek-v4-pro。
+    # 注意 deepseek-v4-flash 也能调通（是 deepseek-flash 的别名），但不是列表里的正式名。
+    model: deepseek-flash
+    # 思考档位 low/high/max。DeepSeek-V4 是推理模型，正文前先输出 reasoning_content，
+    # 实测同问题 low 比默认少约 26% 思考量、首字快约 0.3s；轻问诊场景优先低延迟。
+    # ⚠️ 它只决定「想多深」，决定不了「要不要想」—— 给到 low 每轮仍会思考数百字。
+    #    真正砍首帧延迟靠下面的 thinking 开关；**关思考时本参数不再发送**。
+    effort: low
+    # 思考模式：enabled（全开，改造前行为）/ disabled（全关，最速）/ auto（默认关，风险条件开回来）
+    #
+    # 【为什么必须动这个开关】真库 ai_usage_log 81 条记录回归：
+    #     首帧 ≈ 532 ms + 6.2 ms × 思考token        corr = 0.968
+    #     corr(首帧, prompt_tokens) = 0.192   ← 提示词长短不是瓶颈
+    #     corr(首帧, cached_tokens) = 0.016   ← 前缀缓存命中也不是
+    #   而 532 ms 的固定项里，实测复用连接下的最小请求就有 453~808 ms（公网往返 + 排队），
+    #   已无压缩空间。也就是说：**缩小提示词、提高缓存命中都白费，唯一有量级的杠杆是思考量**。
+    #
+    # 【同题同提示词对照实验】             首帧            思考字数
+    #     effort=low                      2657 / 2081 ms   431 / 349
+    #     reasoning_effort=none            615 /  827 ms       0
+    #     thinking.type=disabled           737 /  931 ms       0
+    #   关思考后首帧稳定在 0.6~0.9 s，快 2.5~5 倍。
+    #
+    # ⚠️ 但不建议直接填 disabled，原因是实测的质量代价：危机语境下（AI 已问
+    #   「有没有想过伤害自己」，用户答「晚上会想睡过去不醒，但我妈还在」），
+    #   开思考的回复给出了 120/110/12356 热线与「今晚别独处、危险物品交人保管」；
+    #   关思考的回复共情到位，却一条热线、一句安全兜底都没有 —— 安全出口的产出
+    #   恰好落在思考过程里。故默认 auto：默认关掉换速度，命中风险条件自动开回来保安全。
+    thinking: auto
+    # auto 模式下，「会话关联测评」达到这些等级时开启思考。
+    # 只列 C（高风险）与 D（危机）：这两档本就要求人工介入，多花几秒换更谨慎的措辞划算。
+    thinking-risk-levels: C,D
+    # auto 模式下，处于这些引导阶段时开启思考。
+    # 只列 SUMMARY_REFERRAL（建议转介）：要复述全局、给建议、并用模型自己的话解释推荐理由，
+    # 是整段对话里唯一需要综合判断的环节。前两阶段都是「接住情绪 + 追问一句」，
+    # 思考的边际收益最低而延迟体感最明显。
+    # ⚠️ 取值必须与 ai/InterviewStage 的枚举名一致（有测试用例覆盖会更稳妥）。
+    thinking-stages: SUMMARY_REFERRAL
+    # 单次回复 token 上限，**同时是「思考 + 正文」的共享预算**。
+    # 给成 256 时实测 258 帧全是思考、正文为空（finish_reason=length，看不出异常），
+    # 前端表现是「AI 不回话」。上限本身不计费，给足更安全。
+    max-tokens: 8192
+    timeout-seconds: 60        # 整体上限，到点截断（记 INTERRUPTED）
+    first-token-seconds: 15    # 首帧超时：15 秒不吐第一个字即降级
+    max-history: 10            # 送入模型的最近上下文轮数（与 max-context-tokens 是双重保护）
+    # 历史对话的 token 预算：从最近往前累加，超预算即停。取代原来「按条数裁剪」的做法 ——
+    # 中文场景下条数完全不代表长度，一条 3000 字的倾诉和一句「嗯」占同样的配额。
+    max-context-tokens: 6000
+    # 单条消息字符上限，超出则截断后送出（防止一条超长输入把整个窗口顶掉）
+    single-message-max-chars: 1000
+    # 会话消息总数达到该值后触发「早远对话 → consult_session.summary」的摘要压缩。
+    # 异步执行、不阻塞回复；失败只告警（下一轮上下文短一点，一切照常）。
+    summary-trigger-messages: 24
+    summary-step-messages: 8   # 之后每多这么多条消息再压一次，避免每轮都调一次模型
+    max-retries: 1             # 仅在上游还没吐出任何正文时才重试
+    retry-backoff-ms: 500      # 退避基数，第 n 次等待 base * 2^n
+    startup-probe: true        # 启动时探活（只调 /models，不消耗 token）
+  # 向量化 —— 与对话**必然是两家供应商**：DeepSeek 没有 embeddings 端点（已核实）。
+  # 所以这里是独立的一段配置，不是 llm 的子节点：换向量模型时不该有机会碰坏对话配置。
+  embedding:
+    provider: openai-compat
+    # 阿里云百炼的 OpenAI 兼容入口。**中国区 Key 只能打这个域名**，
+    # 新加坡区是 https://dashscope-intl.aliyuncs.com/compatible-mode/v1 ——
+    # 配错地域的表现是 401（不是 404），文案与「Key 写错」完全一样，分不出来。
+    base-url: https://dashscope.aliyuncs.com/compatible-mode/v1
+    path: /embeddings
+    models-path:               # 留空则推导：/embeddings → /models（base-url 已含 /v1）
+    # 密钥来源与 psycare.llm.api-key 完全一致：仓库根 application-local.yml，yml 里不落 Key。
+    # 也支持环境变量 PSYCARE_EMBEDDING_API_KEY 或 -DPSYCARE_EMBEDDING_API_KEY=xxx 覆盖。
+    # 缺失时探活只打 WARN，向量化降级 → RAG 检索为空，对话照常。
+    # 模型名以服务端 /models 返回的为准，别凭记忆写。已实测（2026-10-08）：
+    #   列表中有 qwen3.7-text-embedding-flash 与 qwen3.7-text-embedding
+    model: qwen3.7-text-embedding-flash
+    # 维度必须与 Milvus collection 的 dense_vector dim 严格一致。
+    # ⚠️ 改这个值 = 所有已入库向量失去可比性，必须整体重建索引（kb_document.embed_model/dim 用于判定）。
+    # 实测该模型可选 1024 / 768 / 512 / 256。
+    dim: 1024
+    # 单次最大条数。**实测该模型上限是 25**（n=25 通过、n=32 报 400），
+    # 不是文档常写的 10（那是 text-embedding-v4 的上限）。换模型须重新实测。
+    batch-size: 25
+    timeout-seconds: 30
+    max-retries: 3             # 整批重试次数；耗尽后降级为逐条，隔离单条毒数据
+    retry-backoff-ms: 500
+    startup-probe: true        # 启动时探活（只调 /models，不消耗 token；失败只 WARN）
+  # RAG 索引层（Milvus）。**这里刻意没有 dim** —— 维度的唯一来源是上面 embedding.dim，
+  # 再写一份就等于允许「上游返回 1024、collection 建 768」这种只能靠报错发现的配置。
+  milvus:
+    enabled: true
+    uri: http://localhost:19530
+    # 本机 Milvus 是单容器、未开鉴权 → 留空表示不发送 Authorization 头。
+    # 生产若开鉴权，写成 root:Milvus（或走 PSYCARE_MILVUS_TOKEN 覆盖）。
+    token:
+    # 独立 database：本机这台 Milvus **不是本项目独占**（default 下有别人的 biz 集合，
+    # 另有 rag_demo.docs / rag_tutorial.docs 两个残留集合，后者持续刷段加载 WARN）。
+    # 混在 default 里，任何一方「清一下库」都会误伤。启动时不存在会自动创建（幂等）。
+    database: psycare
+    collection: psycare_kb_chunk
+    # 建连超时给短值：Milvus 没起时不该让接口挂几十秒（失败即降级为「无 RAG 继续对话」）。
+    connect-timeout-ms: 5000
+    rpc-deadline-ms: 10000
+    dense-top-k: 20
+    sparse-top-k: 20
+    final-top-k: 5
+    rrf-k: 60                  # RRF 论文默认值，改了要重跑 Phase 4 阈值校准
+    text-max-bytes: 4096       # text 字段上限（Milvus VarChar 按字节）；写入前按它截断
+    # ⚠️ 2026-10-09 Phase 4 起改为 true。原因是一次**真实的丢数据**：
+    #    standalone 单容器把写入先放在内存段，flush 之前重启 → 这批向量永久消失，
+    #    而 MySQL 侧事务已提交 → 出现「文档 READY、MySQL 有分块、Milvus 查不到」。
+    #    Phase 3 时检索还没接线，丢了看不出来；Phase 4 起检索上线，必须一次写透。
+    #    代价是每次 upsert 多一次 flush 往返 —— 批量导入时按文档数计，
+    #    换来的是「导入完立刻可检索」这个确定性。
+    flush-after-write: true
+    startup-probe: true        # 失败只 WARN：索引挂了不该让在线对话也挂
+  # RAG 在线检索（「查」这一侧）。与 milvus 段分开：那边管「连哪、建什么」，
+  # 这边管「怎么查、查到什么程度算数」—— 调阈值的频率远高于换 Milvus 实例。
+  retrieval:
+    enabled: true
+    # 稠密相似度下限。**注意**：只能拿它比稠密那一路的分，RRF 融合分没有可比量纲。
+    # 稀疏（BM25）单独召回的条目 denseScore 为 null，**不受此阈值限制**（精确词命中的正是这类）。
+    # 0.5 是保守起点，真实值由 eval_retrieval.py 在评测集上做分离点分析后回填。
+    min-dense-score: 0.5
+    # 回表后拼进提示词的条数上限。Milvus 侧 final-top-k=5 已截过一次，
+    # 这里再收一道：父块 1400 字，5 条就是 7000 token，会把历史对话挤没。
+    max-injected: 3
+    max-context-tokens: 2000   # 注入资料的总 token 预算；超出按融合分从高到低整条丢弃
+    rewrite-enabled: false     # 查询改写要多一次 LLM 调用；多轮指代场景才划得来
+    cache-enabled: true        # 缓存**向量**而非结果：语料一改立刻可见，永不返回过期正文
+    cache-ttl-seconds: 86400   # 24h；语料变更频率远低于对话频率
+    timeout-ms: 3000           # 单次检索整体上限；超时降级为「无资料」
+  # 预警规则
+  alert:
+    trend-score-rise: 5         # 相邻两次测评总分涨幅阈值
+    trend-window-days: 90       # 趋势比较窗口
+  # 文件上传（当前仅 banner 图片）。**存的是本地磁盘，不是对象存储** ——
+  # 单机部署够用，但多实例部署会失效（传在 A 机的图，请求打到 B 机就 404）。
+  # 将来横向扩容时第一件要改的就是这里，换成对象存储实现，接口形态不变。
+  upload:
+    # 落盘根目录。相对路径按 JVM 工作目录解析（IDEA 里 = 项目目录）。
+    # 刻意**不放进 resources/static**：打包后那是只读的，且每次重新部署都会丢。
+    dir: ./data/uploads
+    # 对外 URL 前缀（**含 context-path /api**）。返回给前端的 imageUrl 带着它，
+    # 前端拼 baseURL 即可访问；少写 /api 会让图片请求打到 vite dev server 而不是后端。
+    url-prefix: /api/uploads
+    # 业务层大小上限（MB）。必须 <= 上面 spring.servlet.multipart.max-file-size。
+    max-size-mb: 5
+    # 允许的扩展名（小写、不含点）。banner 是运营位，收紧到常见图片格式即可
+    allowed-extensions: jpg,jpeg,png,gif,webp
+    # 目标宽高比（宽/高）。banner 的固定比例 = 2.5:1，对应标准物料 1200×480。
+    # ⚠️ 三处同源，改动要一起改：这里 / 前端 tokens.css 的 --banner-ratio /
+    #    ImageCropper.vue 的 BANNER_RATIO（见硬约定 #101）。
+    target-ratio: 2.5
+    # 比例容差（相对误差，0.1 = 10%）。**超差才拒**，容差内放行 ——
+    # 目的是挡「量级不对」的图（竖图 0.75:1、长图 6:1），而不是要求运营每次
+    # 都刚好交 1200×480；10% 内 cover 裁掉的那点边缘肉眼不可见。
+    ratio-tolerance: 0.1

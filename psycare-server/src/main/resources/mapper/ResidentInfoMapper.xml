@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.cmh.psycare.mapper.ResidentInfoMapper">
+
+    <!--
+      医生端「用户信息」列表读模型。三个要点：
+
+      1) 【显式写 u.is_deleted = 0】自定义 XML 不走 MyBatis-Plus 的 @TableLogic，
+         漏了它，已注销的居民会照样出现在医生的患者列表里。
+
+      2) 【绝不 SELECT u.password】白名单列清单，不是实体直出。
+
+      3) 【姓名/手机号出的是原文，脱敏在 Service 层做】
+         跟随 AccountMapper.xml 的既有约定：脱敏属展示层职责，
+         存原文是为了保留医生在必要场景下的可追溯性。
+         这里若把 real_name 换成「已脱敏」的 SQL 表达式，脱敏规则就会在
+         Java 与 SQL 两处各存一份，迟早漂移。
+
+      聚合子查询说明：assessment 表没有 is_deleted 列（当时软删只加给了
+      sys_user 系），所以这几个子查询不需要也不该加 is_deleted 条件。
+    -->
+    <select id="selectResidentPage" resultType="com.cmh.psycare.dto.ResidentInfoVO">
+        SELECT u.id                                              AS id,
+               u.username                                        AS username,
+               u.real_name                                       AS realName,
+               u.phone                                           AS phone,
+               r.gender                                          AS gender,
+               r.birth_year                                      AS birthYear,
+               r.occupation                                      AS occupation,
+               (SELECT COUNT(*)
+                FROM assessment a
+                WHERE a.resident_id = u.id)                       AS assessmentCount,
+               (SELECT MAX(a.created_at)
+                FROM assessment a
+                WHERE a.resident_id = u.id)                       AS lastAssessmentAt,
+               (SELECT a.risk_level
+                FROM assessment a
+                WHERE a.resident_id = u.id
+                ORDER BY a.created_at DESC, a.id DESC
+                LIMIT 1)                                          AS lastRiskLevel,
+               (SELECT COUNT(*)
+                FROM assessment a
+                WHERE a.resident_id = u.id
+                  AND a.crisis_flag = 1)                          AS crisisCount,
+               <!-- doctorId 为 null 时 = NULL 恒不成立，子查询自然返回 null，无需 <if> 包一层 -->
+               (SELECT cs.id
+                FROM consult_session cs
+                WHERE cs.resident_id = u.id
+                  AND cs.doctor_id = #{doctorId}
+                  AND cs.consult_type = 'DOCTOR'
+                  AND cs.status = 'OPEN'
+                ORDER BY cs.id DESC
+                LIMIT 1)                                          AS sessionId
+        FROM sys_user u
+                 LEFT JOIN `user` r ON r.id = u.id
+        <where>
+            u.is_deleted = 0
+            AND u.role = 'RESIDENT'
+            <if test="keyword != null and keyword != ''">
+                AND (u.username LIKE CONCAT('%', #{keyword}, '%')
+                     OR u.real_name LIKE CONCAT('%', #{keyword}, '%'))
+            </if>
+        </where>
+        <!-- 最近有测评的排前面；DESC 排序下 NULL 自动落到末尾 -->
+        ORDER BY lastAssessmentAt DESC, u.id
+    </select>
+
+</mapper>

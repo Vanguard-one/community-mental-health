@@ -1,0 +1,169 @@
+/**
+ * 全局样式
+ * 依据《开发文档.md》第三章「设计系统契约」
+ *
+ * 引入顺序（见 main.ts）：
+ *   tokens.css → fonts.css → ant-design-vue/dist/reset.css → global.css
+ */
+
+/* ===================== 基础重置 ===================== */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  min-height: 100vh;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--text-2);
+  /*
+   * 全站统一页面底 —— 居民端 / 医生端 / 管理端共用同一份渐变（token 见 tokens.css）。
+   *
+   * 为什么只改这一处就够：两端 Layout 的根容器都是 background: transparent，
+   * 下面的 .ant-layout / .ant-layout-content 也被显式置为 transparent，
+   * 登录页与注册页只叠了一层「提亮方向」的柔光。所以三端最终都透出这里的底，
+   * 页面底的唯一真源就是 body。**不要在某个 Layout 里再写一遍背景**，
+   * 那会造成「改一端忘另两端」的不一致（硬约定 #110）。
+   *
+   * 改版（2026-10-13）：背景图已下线，回到纯渐变；**不再叠遮罩** ——
+   * 遮罩只把亮度台阶从 1.21 提到 1.32，而 alpha 0.06 就会把 --text-2 从 5.40 压到 4.95。
+   * 层次感改为靠「面的分级 + 描边 + 阴影」承担，见 tokens.css 的 --card-border / --shadow-card。
+   *
+   * fixed —— 固定不随内容滚动：卡片滚动时是「擦过」背景，滚动更稳；
+   *          代价是走到渐变深色带时，半透明玻璃面（hero / 窄栏 / 顶栏）会略偏蓝，属已知取舍。
+   */
+  background: var(--app-bg);
+  background-attachment: fixed;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ===================== 标题 ===================== */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--font-serif);
+  font-weight: 600;
+  color: var(--text-1);
+  line-height: 1.35;
+}
+
+a {
+  color: var(--primary);
+  text-decoration: none;
+  transition: color var(--dur) var(--ease);
+}
+
+a:hover {
+  color: var(--primary-dark);
+}
+
+/* ===================== 页面容器 ===================== */
+/* 居民端内容宽 1344，居中；配 28px 内边距 */
+.page-container {
+  max-width: var(--content-max);
+  margin: 0 auto;
+  padding: var(--content-pad);
+  position: relative;
+  z-index: 1;
+}
+
+/* 阅读 / 表单向：问卷作答、结果反馈、历史、通知 */
+.page-container.narrow {
+  max-width: 1040px;
+}
+
+/* ===================== 滚动条 ===================== */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cfd8e3;
+  border-radius: var(--radius-pill);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #b6c2d1;
+}
+
+/* ===================== 动效前置态 =====================
+ * 与 `.workbuddy/demo/redesign-preview.html` 的约定一致：
+ *   data-reveal        该容器是一个 recipe 触发点（由 v-reveal 指令写入）
+ *   data-anim          该元素「要入场」，具体动作由属性值决定
+ * 引擎见 src/directives/reveal.ts，已在 main.ts 全局注册。
+ *
+ * ⚠️ 前置态**只作用于 `data-reveal-pending` 容器内部**，而不是全局 `.anim-ready [data-anim]`。
+ *    示例页是单文件、几块内容，全局挂钩没问题；本项目是 SPA、几十个页面并存，
+ *    一旦「写了 data-anim 却忘了包 v-reveal」，全局挂钩会让那块内容**永久不可见**。
+ *    收窄到 pending 容器后，孤立元素最多是「没有入场动画」，不会消失 ——
+ *    失败模式从「丢内容」降级为「少一个动效」。
+ * ⚠️ 引擎在触发 recipe 的同一帧就摘掉 pending 并给所有 [data-anim] 补 `.anim-done`：
+ *    已经在播的元素靠 WAAPI 的动画优先级（高于普通作者声明）继续按关键帧走，
+ *    没被配方覆盖的元素则立刻转为可见 —— 既不会闪，也不会漏。
+ * ⚠️ 与 skill 模板的一处刻意差异：那边把位移也写在 CSS 前置态里
+ *    （`[data-anim="right"]{transform:translateX(24px)}`）。我们**只留 opacity**，
+ *    位移全部交给动画关键帧。原因：动画播完要 cancel() 才能让元素自身的 hover
+ *    transform 生效，而 cancel 的瞬间计算值会从「CSS 前置态的 translateX(24px)」
+ *    跳回自然态 —— 若该元素上还挂着 transform transition，就会平白多播一次回弹。
+ */
+.anim-ready [data-reveal-pending] [data-anim],
+.anim-ready [data-anim][data-reveal-pending] {
+  opacity: 0;
+}
+
+/* 动效终态：动画播完 cancel() 后补这个类，让元素回到自然态。
+   ⚠️ 这里**只写 opacity，不写 transform** —— 写了 transform: none 就会以同样的
+   特异性反压掉 `.entry-card:hover`、`.role-item:hover` 这些悬停位移。 */
+.anim-ready [data-anim].anim-done {
+  opacity: 1;
+}
+
+/* ===================== Ant Design 局部覆盖 ===================== */
+/* 主题 token 已由 ConfigProvider 注入（见 App.vue），此处只处理
+   token 覆盖不到、或必须让页面底透出来的少数情形。 */
+
+/* 布局容器透明，露出 body 的页面底 */
+.ant-layout,
+.ant-layout-content {
+  background: transparent;
+}
+
+/* 卡片：统一描边 + 极轻阴影（Ant 默认阴影过重，会丢掉洁净感） */
+.ant-card {
+  border-color: var(--card-border);
+  box-shadow: var(--shadow-card);
+}
+
+/* 表格表头用面板浅底，与卡片白底分层 */
+.ant-table-thead > tr > th {
+  background: var(--panel-bg) !important;
+  color: var(--text-2) !important;
+  font-weight: 500;
+}
+
+/* 表格数值列默认走等宽（配合 .mono 使用） */
+.ant-table-tbody .mono {
+  font-family: var(--font-mono);
+}
+
+/* 表单标签 */
+.ant-form-item-label > label {
+  color: var(--text-2);
+}

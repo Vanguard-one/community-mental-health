@@ -1,0 +1,2060 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PsyCare 视觉改版 · 效果示例</title>
+<style>
+/* ============================================================================
+   新版 Token —— 与改版后 tokens.css 的取值逐项一致
+   右下角可切换：登录页 / 居民端首页 / 管理后台 / 改动对照
+   ============================================================================ */
+:root {
+  /* 页面底：纯低饱和渐变，**不叠遮罩**（提亮方向的柔光可以有，压深的遮罩一律去掉） */
+  --app-bg: linear-gradient(135deg, #c6d9f5 0%, #d3e1f8 100%);
+  /* 主色 */
+  --primary: #2563eb;
+  --primary-dark: #1d4fd8;
+  --primary-soft: #e7eefe;
+  --grad-primary: linear-gradient(135deg, #2563eb 0%, #1d4fd8 100%);
+  --accent-purple: #7c3aed;
+  /* 三级面 */
+  --card-bg: #ffffff;
+  --card-border: #d5dfeb;      /* ⚠️ 不跟着阴影变浅，阴影弱化后它是唯一边界信号 */
+  --panel-bg: #eef3fa;
+  --card-bg-glass: rgba(255, 255, 255, 0.82);
+  --glass-blur: 18px;
+  --ctrl-border: #c3d0e0;      /* 控件描边，比 card-border 深一档 */
+  /* 文字三档 */
+  --text-1: #0b1220;
+  --text-2: #47536a;
+  --text-3: #64748b;
+  /* 墨色：线性图标的统一描边色（比 --text-1 温和、比 --text-2 沉），仅用于描边图形 */
+  --ink: #22314b;
+  /* 风险四色阶 */
+  --risk-a: #12b0a0; --risk-b: #f09a0a; --risk-c: #f76a1a; --risk-d: #e43b3b;
+  --risk-a-soft: #e0f9f5; --risk-b-soft: #fef6e4; --risk-c-soft: #fef1e8; --risk-d-soft: #fef4f2;
+  /* 字体 */
+  --font-sans: 'Source Han Sans CN', 'Noto Sans SC', 'Microsoft YaHei', 'PingFang SC', system-ui, -apple-system, sans-serif;
+  --font-serif: 'Source Han Serif CN', 'Noto Serif SC', 'Songti SC', 'SimSun', serif;
+  --font-mono: 'JetBrains Mono', 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+  /* 圆角（改版：控件 10 / 内卡 16 / 面板 28） */
+  --radius-ctrl: 10px;
+  --radius-sm: 16px;
+  --radius-lg: 28px;
+  --radius-pill: 999px;
+  /* 阴影（改版：更平） */
+  --shadow-card: 0 4px 14px rgba(11, 18, 32, 0.05);
+  --shadow-hover: 0 10px 24px rgba(11, 18, 32, 0.09);
+  --shadow-primary: 0 2px 10px rgba(37, 99, 235, 0.3);
+  /* 布局骨架 */
+  --rail-w: 64px;
+  --header-h: 56px;
+  --content-pad: 28px;
+  --content-max: 1344px;
+  --space-block: 32px;
+  --space-card: 20px;
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --dur: 0.2s;
+
+  /* 动效缓动 —— 照搬 guizang-ppt-skill 的 IBM Carbon Motion 常数。
+     prod  生产/收尾：快出慢停，用于「落定」类动作（KPI、图标、收尾元素）
+     entry 入场：缓入急停，用于「升起/滑入」类动作 */
+  --ease-prod: cubic-bezier(0.2, 0, 0.38, 0.9);
+  --ease-entry: cubic-bezier(0, 0, 0.3, 1);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--text-2);
+  background: var(--app-bg);
+  background-attachment: fixed;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+h1, h2, h3, h4 { font-family: var(--font-serif); font-weight: 600; color: var(--text-1); line-height: 1.35; }
+a { color: var(--primary); text-decoration: none; }
+button { font-family: inherit; cursor: pointer; }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+
+/* ============================ 视图容器 ============================ */
+.view { display: none; }
+.view.is-shown { display: block; animation: viewIn 0.4s var(--ease) both; }
+@keyframes viewIn { from { opacity: 0; } to { opacity: 1; } }
+
+/* ============================ 动效前置态 ============================
+ * 数据属性驱动，照搬 guizang-ppt-skill 的约定：
+ *   data-anim="line"  逐行升起    data-anim="rise" 上浮
+ *   data-anim="left" / "right"   左右滑入
+ *   data-anim="pop"   缩放弹入    data-anim="chrome" 纯淡入
+ *
+ * ⚠️ 这组规则挂在 body.anim-ready 下，而 .anim-ready 只由 JS 在
+ *    「支持 WAAPI 且未触发 prefers-reduced-motion」时添加 —— 所以
+ *    无脚本 / 降级 / 减动效三种情况下内容都是静态可见的，不会白屏。
+ *    这正是 skill 里「内容永远可读，演示不依赖网络」那条降级原则。
+ */
+.anim-ready [data-anim] { opacity: 0; }
+
+/* ⚠️ 与 skill 的一处刻意差异：skill 的模板把位移也写在 CSS 前置态里
+ *    （`[data-anim="right"]{transform:translateX(24px)}`），因为 PPT 页面的元素
+ *    不参与 hover，不担心冲突。我们这里**只留 opacity**，位移全部交给动画关键帧表达。
+ *    原因：动画播完要 cancel() 才能让元素自身的 hover transform 生效，而 cancel 的瞬间
+ *    计算值会从「CSS 前置态的 translateX(24px)」跳回自然态 —— 若该元素上还挂着 transform
+ *    transition，就会平白多播一次 0.3s 的回弹。把位移只放在动画里就不存在这个二次过渡。 */
+
+/* ============================ 通用件 ============================ */
+.card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-card);
+  transition: box-shadow var(--dur) var(--ease), transform var(--dur) var(--ease);
+}
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: 40px; padding: 0 18px;
+  border: 1px solid transparent; border-radius: var(--radius-ctrl);
+  font-size: 14.5px; font-weight: 500;
+  transition: all var(--dur) var(--ease);
+}
+.btn-lg { height: 46px; font-size: 15px; }
+.btn-sm { height: 32px; padding: 0 12px; font-size: 13.5px; border-radius: 8px; }
+.btn-block { width: 100%; }
+.btn-primary { background: var(--grad-primary); color: #fff; box-shadow: var(--shadow-primary); }
+.btn-primary:hover { filter: brightness(1.06); }
+.btn-ghost { background: transparent; border-color: rgba(37, 99, 235, 0.45); color: var(--primary); }
+.btn-ghost:hover { border-color: var(--primary); background: rgba(37, 99, 235, 0.06); }
+.btn-plain { background: transparent; border-color: var(--ctrl-border); color: var(--text-2); }
+.btn-plain:hover { border-color: var(--primary); color: var(--primary); }
+
+.chip {
+  display: inline-flex; align-items: center; height: 24px; padding: 0 10px;
+  border-radius: var(--radius-pill); font-size: 12.5px; font-weight: 500; white-space: nowrap;
+}
+.chip-a { background: var(--risk-a-soft); color: #0b7a6e; }
+.chip-b { background: var(--risk-b-soft); color: #9a6200; }
+.chip-c { background: var(--risk-c-soft); color: #b74a0c; }
+.chip-d { background: var(--risk-d-soft); color: #b62b2b; }
+.chip-n { background: var(--panel-bg); color: var(--text-2); }
+
+/* ============================ 左侧窄图标栏 SideRail ============================ */
+.rail {
+  position: fixed; top: 0; bottom: 0; left: 0; z-index: 40;
+  width: var(--rail-w);
+  display: flex; flex-direction: column; align-items: center;
+  padding: 14px 0 16px;
+  background: rgba(255, 255, 255, 0.58);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));   /* 示例页无构建链，手动补前缀；项目源码里只写标准属性 */
+  border-right: 1px solid rgba(255, 255, 255, 0.8);
+}
+.rail-logo {
+  width: 40px; height: 40px; flex: none;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 14px;
+  background: var(--grad-primary);
+  box-shadow: var(--shadow-primary);
+  margin-bottom: 18px;
+}
+.rail-nav { display: flex; flex-direction: column; gap: 6px; flex: 1; }
+.rail-item {
+  position: relative;
+  width: 44px; height: 44px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 14px;
+  border: 1px solid transparent;
+  color: var(--text-2);
+  transition: all var(--dur) var(--ease);
+}
+.rail-item:hover { background: rgba(255, 255, 255, 0.7); color: var(--primary); }
+/* 选中态 A：半透明栏 + 纯白浮块 + 主色描边 */
+.rail-item.is-active {
+  background: #fff;
+  border-color: var(--primary);
+  color: var(--primary);
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.16);
+}
+.rail-item svg { width: 20px; height: 20px; }
+/* 悬浮提示：纯 CSS 自绘（不引入 a-tooltip —— vendor-antd 只剩 11.82 kB） */
+.rail-item::after {
+  content: attr(data-tip);
+  position: absolute; left: calc(100% + 12px); top: 50%;
+  transform: translate(-4px, -50%);
+  padding: 6px 10px; border-radius: 8px;
+  background: #0b1220; color: #fff; font-size: 12.5px; line-height: 1.4; white-space: nowrap;
+  opacity: 0; pointer-events: none; z-index: 60;
+  transition: opacity var(--dur) var(--ease), transform var(--dur) var(--ease);
+}
+.rail-item:hover::after { opacity: 1; transform: translate(0, -50%); }
+.rail-dot {
+  position: absolute; top: 3px; right: 3px;
+  min-width: 17px; height: 17px; padding: 0 4px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: var(--radius-pill);
+  background: var(--risk-d); color: #fff; font-size: 10.5px; font-weight: 600;
+  border: 1.5px solid rgba(255, 255, 255, 0.9);
+}
+.rail-foot { flex: none; }
+
+/* 角色头像（与 RoleAvatar.vue 同源） */
+.role-avatar {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: var(--ra-size, 40px); height: var(--ra-size, 40px);
+  border-radius: 50%;
+  background: var(--tile-bg);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tile-tint) 30%, transparent),
+              0 4px 10px -6px var(--tile-glow);
+}
+.role-avatar svg { display: block; width: 84%; height: 84%; }
+.role-avatar.is-ai svg { width: 66%; height: 66%; }
+.role-avatar.is-user { --tile-bg: linear-gradient(140deg, #f5f6f7 0%, #e7eaed 100%); --tile-tint: #6b7a90; --tile-glow: rgba(107, 122, 144, 0.55); }
+.role-avatar.is-admin { --tile-bg: linear-gradient(140deg, #f6f4fe 0%, #eae5fe 100%); --tile-tint: #7c5cf6; --tile-glow: rgba(124, 92, 246, 0.55); }
+.role-avatar.is-doctor { --tile-bg: linear-gradient(140deg, #eff6ff 0%, #dbeaff 100%); --tile-tint: #1f7aff; --tile-glow: rgba(31, 122, 255, 0.55); }
+.role-avatar.is-ai { --tile-bg: linear-gradient(140deg, #f0f6ff 0%, #deeaff 100%); --tile-tint: #2f7bff; --tile-glow: rgba(47, 123, 255, 0.55); }
+
+/* ============================ 骨架 ============================ */
+.app-shell { min-height: 100vh; }
+.app-body { margin-left: var(--rail-w); }
+.content { padding: 24px var(--content-pad) 48px; }
+.content-inner { max-width: var(--content-max); margin: 0 auto; }
+
+/* 原「.content-inner > * 统一 rise + nth-child 机械延迟」已下线。
+   那是 skill 明令禁止的泛型 fade-up：所有元素同一个动作、延迟只是「下标 × 固定值」、
+   而且只在视图切换那一刻播一次（滚到那里时早就播完了），既无语义也无滚动关联。
+   改为 recipe 驱动 + IntersectionObserver 按进入视口触发，见文件末尾「动效引擎」。 */
+
+/* 动效终态：动画播完 cancel() 后补这个类，让元素回到自然态。
+   特异性 (0,3,0) 高于前置态的 (0,2,0)，且此时 WAAPI 效果已撤除。
+   ⚠️ 这里**只写 opacity，不写 transform** —— 写了 transform: none 就会以 (0,3,0)
+   反压掉 `.role-item:hover`、`.brand-feats li:hover` 这些 (0,2,0) 的悬停位移。 */
+.anim-ready [data-anim].anim-done { opacity: 1; }
+
+/* ============================ 页头（改版：补一层 L1 白面） ============================ */
+.page-header {
+  display: flex; align-items: center; justify-content: space-between; gap: 20px;
+  padding: 16px 22px; margin-bottom: var(--space-block);
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-card);
+}
+.page-header h1 { font-size: 23px; font-weight: 700; }
+.page-header .sub { margin-top: 4px; font-size: 13px; color: var(--text-3); }
+
+/* ============================ 后台顶栏（56px 玻璃条） ============================ */
+.topbar {
+  position: sticky; top: 0; z-index: 30;
+  height: var(--header-h);
+  display: flex; align-items: center; gap: 16px;
+  padding: 0 22px;
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border-bottom: 1px solid rgba(213, 223, 235, 0.8);
+}
+.crumb { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text-3); }
+.crumb b { color: var(--text-1); font-weight: 500; font-family: var(--font-sans); }
+.topbar-right { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+.icon-btn {
+  width: 36px; height: 36px; display: flex; align-items: center; justify-content: center;
+  border: 1px solid transparent; border-radius: var(--radius-ctrl);
+  background: transparent; color: var(--text-2); transition: all var(--dur) var(--ease);
+}
+.icon-btn:hover { background: rgba(255, 255, 255, 0.85); border-color: var(--card-border); color: var(--primary); }
+.avatar-chip { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text-1); }
+
+/* ============================ 登录页 ============================ */
+.view[data-view='login']::before {
+  content: ''; position: fixed; inset: 0; pointer-events: none;
+  /* 只做「提亮」方向的柔光，绝不压深页面底 */
+  background:
+    radial-gradient(880px 520px at 10% -12%, rgba(255, 255, 255, 0.55), transparent 62%),
+    radial-gradient(720px 460px at 104% 6%, rgba(255, 255, 255, 0.4), transparent 64%);
+}
+.auth-wrap {
+  position: relative; min-height: 100vh;
+  display: flex; align-items: center; justify-content: center;
+  padding: 40px 24px;
+}
+/* 卡片外再套一层「透明玻璃框」：半透明白 + 细亮边 + 内高光 */
+.auth-frame {
+  /* 卡宽 1100（= 1120 减两侧 10px 框）：2:3 后操作页只剩 440px，
+     再窄表单的输入框会掉到 300px 以下，所以卡整体加宽 */
+  width: 1120px; max-width: 100%;
+  padding: 10px;
+  border-radius: 38px;
+  background: rgba(255, 255, 255, 0.34);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  box-shadow: 0 24px 64px rgba(11, 18, 32, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+.auth-card {
+  position: relative;
+  height: 622px;
+  border-radius: 28px;
+  overflow: hidden;
+  /* 卡片底色 = 简介页的蓝。操作页滑走后露出的就是它 ——
+     「移动之前的位置保持蓝色背景」是**结构性保证**，不靠额外动画去补 */
+  background: linear-gradient(152deg, #2563eb 0%, #1d4fd8 100%);
+  box-shadow: 0 10px 30px rgba(11, 18, 32, 0.08);
+  /* 把白点层的 screen 混合锁在卡内，不让它去和外框的玻璃底混合 */
+  isolation: isolate;
+}
+.auth-card::after {
+  /* 柔光提亮只落在右下角（文字垂直居中，四角本来留白）；
+     alpha 压到 .16 —— 白字在「#1d4fd8 + 16% 白」上仍有 4.79:1，不低于 AA */
+  content: ''; position: absolute; right: -60px; bottom: -60px;
+  width: 380px; height: 380px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.16), transparent 68%);
+  pointer-events: none;
+  /* -1：压到卡片背景之上、白点层之下 —— 绘制序 = 蓝渐变 → 柔光 → 点阵 → 文字 → 白板 */
+  z-index: -1;
+}
+
+/*
+ * 白点漂移场 —— 移植自 guizang-ppt-skill（歸藏）瑞士风模板的 canvas.bg WebGL 背景
+ *   原实现：assets/template-swiss.html 的 VS/FS 字符串 + bootGL() + startGrid()
+ *   仓库：https://github.com/op7418/guizang-ppt-skill  （AGPL-3.0，用法见文末说明）
+ *
+ * 与原版**一致**的部分：
+ *   ① 着色器逐行照搬（drift 漂移 / 主副双层网格 / 点阵 / wave 密度调制 / 鼠标强化）
+ *   ② 混合方式照搬它的「深底页」分支：mix-blend-mode: screen + opacity .42
+ *      —— 蓝底在 shader 里按 u_dark=1 处理 → 输出亮色点线 → screen 叠上去就是白点
+ *   ③ DPR 上限 2、prefers-reduced-motion 停 RAF
+ *
+ * 与原版**必须不同**的几处（都在 JS 的 shader 注释里写明数值与理由）：
+ *   ① canvas 不铺满视口，而是铺满卡片（inset:0）—— 简介区会随白板在两处之间切换，
+ *      铺满整卡就不必关心它此刻在哪边；溢出的部分由 .auth-card 的 overflow:hidden 裁掉
+ *   ② 点阵密度 50 → 52、漂移 ×2.75、波调制相位速度 ×2.3，并新增「点自摆 sway」
+ *      —— 目标：点更密、且「在自主运动」这件事肉眼能直接看出来
+ */
+.auth-dots {
+  position: absolute; inset: 0; z-index: 0;
+  display: block; width: 100%; height: 100%;
+  pointer-events: none;
+  opacity: 0.42;
+  mix-blend-mode: screen;
+  /* WebGL 不可用时的兜底：静态点阵（点距 12px 与 shader 的 52 密度对齐）。
+     WebGL 正常时 canvas 会用绘制内容整块盖住这层 background，不需要额外判断 */
+  background-image: radial-gradient(rgba(255, 255, 255, 0.52) 0.9px, transparent 1.1px);
+  background-size: 12px 12px;
+}
+
+/*
+ * 两栏比例 2:3 —— 操作页占 2 份（40%）、简介页占 3 份（60%）。
+ * 两页**宽度恒定**，切换时只是左右位置互换：白板 440px 滑到左边仍是 440px，
+ * 简介文字两份都是 660px，一份消散另一份浮现 —— 所以「比例一致」是结构性的，
+ * 不靠两套不同宽度的样式去凑。
+ *
+ * 简介文字：两套位置、交叉淡出淡入，**不跟着平移**。
+ *   左份  初始可见 → 白板压过来之前先消散
+ *   右份  初始隐藏 → 随白板让位而在原操作页的位置浮现
+ * 时序：淡出先起步（delay .06s），淡入等位置让开（delay .30s），两者有重叠段。
+ * transition 取自「目标状态」的规则 → 正反两趟的时序自动镜像，不必写两套。
+ */
+.brand-text {
+  position: absolute; top: 0; bottom: 0; width: 60%; z-index: 1;
+  padding: 46px 42px;
+  display: flex; flex-direction: column; justify-content: center;
+  color: #fff;
+}
+.brand-text.left { left: 0; }
+.brand-text.right { left: 40%; }
+.brand-text.left {
+  opacity: 1; transform: none;
+  transition: opacity 0.55s var(--ease) 0.3s, transform 0.55s var(--ease) 0.3s;
+}
+.brand-text.right {
+  opacity: 0; transform: translateY(8px);
+  transition: opacity 0.5s var(--ease) 0.06s, transform 0.5s var(--ease) 0.06s;
+}
+.auth-card.is-form .brand-text.left {
+  opacity: 0; transform: translateY(8px); transition-delay: 0.06s;
+}
+.auth-card.is-form .brand-text.right {
+  opacity: 1; transform: none; transition-delay: 0.3s;
+}
+
+/* 操作页：白色面板，宽 40%（2 份），从右侧滑到左侧。
+   位移量：初始左边缘在 60% 处，要落到 0 → 需走 1.5 倍自身宽度（100% = 自身宽）
+   ⚠️ 比例改成 2:3 后这里就是 -150%，不再是 -100%；改动比例必须同改这一处 */
+.auth-action {
+  position: absolute; top: 0; bottom: 0; left: 60%; width: 40%; z-index: 2;
+  background: var(--card-bg);
+  /* 阴影只朝左：滑动时落在蓝底上，右侧文字区不会被暗晕染脏 */
+  box-shadow: -24px 0 44px -28px rgba(11, 18, 32, 0.5);
+  transition: transform 0.75s cubic-bezier(0.66, 0, 0.34, 1);
+  will-change: transform;
+}
+.auth-card.is-form .auth-action { transform: translateX(-150%); }
+.screen {
+  position: absolute; inset: 0;
+  padding: 40px 36px;
+  display: flex; flex-direction: column; justify-content: center;
+  opacity: 0; visibility: hidden;
+  transform: translateX(16px);
+  pointer-events: none;
+  transition: opacity 0.34s var(--ease), transform 0.34s var(--ease), visibility 0.34s;
+}
+.screen.is-on { opacity: 1; visibility: visible; transform: none; pointer-events: auto; }
+
+.brand-logo { display: flex; align-items: center; gap: 10px; margin-bottom: 42px; }
+.brand-logo .mark {
+  width: 38px; height: 38px; border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(255, 255, 255, 0.18);
+}
+.brand-logo .name { font-family: var(--font-serif); font-size: 20px; font-weight: 700; color: #fff; letter-spacing: 0.5px; }
+.brand-title { font-size: 30px; color: #fff; line-height: 1.4; margin-bottom: 14px; }
+.brand-desc { font-size: 14px; color: rgba(255, 255, 255, 0.82); margin-bottom: 34px; }
+.brand-feats { list-style: none; display: flex; flex-direction: column; gap: 14px; font-size: 14px; color: rgba(255, 255, 255, 0.94); }
+.brand-feats li { display: flex; align-items: center; gap: 10px; }
+.brand-feats .ok {
+  width: 20px; height: 20px; flex: none; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(255, 255, 255, 0.22); font-size: 11px;
+}
+/* 标题拆成两行后必须显式成块，否则两个 span 会挤在一行 */
+.brand-title .bt-line { display: block; }
+/* 「听见」二字的 hairline 下划光带：入场时从左向右描出（skill 的描线语义）。
+   ⚠️ 用真实元素 <i class="bt-under"> 而不是 ::after —— 伪元素无法被 WAAPI 直接驱动，
+   也没法参与统一的复位/取消，只有真实元素才能和别的动效共用同一套收尾逻辑。
+   初始收成 scaleX(0) 挂在 `:not(.anim-done)` 下：降级（无 .anim-ready）时该规则不成立，
+   线就是正常显示的自然态，不会因为动效没跑而消失。 */
+.brand-title .bt-em { position: relative; }
+.brand-title .bt-under {
+  position: absolute; left: 0; right: 0; bottom: 2px; height: 1px;
+  background: rgba(255, 255, 255, 0.6);
+  transform-origin: left center;
+}
+.anim-ready .brand-title .bt-under:not(.anim-done) { transform: scaleX(0); }
+
+/* ---------- 悬停交互（简介页）----------
+ * 全部只动 transform / 背景色，二者都在合成层，不触发 layout 与重绘扩散。
+ * ⚠️ 这里的 transform 能生效，是因为入场动画播完后会被 cancel() 并清掉 fill，
+ *    若动画用 fill:forwards 一直挂着，这些 hover 会被整条压掉。 */
+.brand-logo .mark {
+  transition: transform 0.34s var(--ease-prod), background-color 0.34s var(--ease-prod);
+}
+.brand-logo:hover .mark {
+  transform: rotate(-6deg) scale(1.07);
+  background-color: rgba(255, 255, 255, 0.3);
+}
+.brand-feats li { transition: transform 0.3s var(--ease-prod); }
+.brand-feats li:hover { transform: translateX(6px); }
+.brand-feats .ok {
+  transition: transform 0.3s var(--ease-prod), background-color 0.3s var(--ease-prod);
+}
+.brand-feats li:hover .ok {
+  transform: scale(1.1);
+  background-color: rgba(255, 255, 255, 0.42);
+}
+
+/*
+ * 身份选择 —— 三列并排、卡内竖向居中（图标在上 → 主标 → 副标）。
+ *
+ * 四条约束：
+ *   ① 卡片无 border、无 arrow：靠 --panel-bg 这层 L2 极淡面立住「这是一块可点的卡」，
+ *      而不是靠描边；
+ *   ② 图标去掉外层的方框面与描边，只留最里面的线性图形，并且放大到 34px；
+ *   ③ 悬停只改「色」，不改「面」：底色恒为 --panel-bg，图标与全部文字一起转主色，
+ *      另加一层极淡的主色外光晕表示可点 —— 不加位移、不换底色；
+ *   ④ 副标取 --text-2 而不是 --text-3：--text-3 落在 --panel-bg 上只有 4.27（不到 AA
+ *      的 4.5），--text-2 给到 6.94。层级仍低于主标（text-1 + 600 粗），不影响弱化。
+ *
+ * ⚠️ 蓝字只能用 --primary 原色（--panel-bg 上 4.64 ✓ AA）。
+ *    别「淡化主色」来做副标：主色 76% 落在 --panel-bg 上只有 3.13，直接不达标。
+ *    层级差靠字号 + 字重（15px/600 vs 11.5px/400）承担，不靠减淡颜色。
+ */
+.role-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.role-item {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 12px; width: 100%;
+  padding: 22px 10px 20px;
+  text-align: center;
+  border: 0;
+  border-radius: 16px;
+  background: var(--panel-bg);
+  color: var(--ink);
+  font-family: inherit;
+  cursor: pointer;
+  transition:
+    color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
+}
+/* 悬停：底色不动，图标（color: inherit）与两级文字一起转主色 + 主色光晕 */
+.role-item:hover {
+  color: var(--primary);
+  box-shadow: 0 4px 14px -6px rgba(37, 99, 235, 0.34);
+}
+.role-item .rtext { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.role-item .rname { font-size: 15px; font-weight: 600; color: var(--text-1); transition: color var(--dur) var(--ease); }
+.role-item .rsub { font-size: 11.5px; line-height: 1.35; color: var(--text-2); transition: color var(--dur) var(--ease); }
+.role-item:hover .rname { color: var(--primary); }
+.role-item:hover .rsub { color: var(--primary); }
+
+/*
+ * 身份图标 —— 「描边墨色」，只保留最里面的线性图形。
+ * ① 同一 24 栅格 + stroke-width 1.8（34px 渲染 ≈ 2.55px）；② round 端点与转角；
+ * ③ 颜色只走 currentColor，跟随 .role-item（静止墨色 → 悬停主色）。
+ * 外层原本那块 40px 的方框面（--panel-bg + 内侧描边 + 圆角）整块撤除。
+ */
+.role-ico {
+  display: flex; align-items: center; justify-content: center;
+  color: inherit;
+}
+.role-ico svg { width: 34px; height: 34px; display: block; }
+
+/* 登录表单 */
+.form-title { font-size: 24px; font-weight: 700; }
+.form-sub { margin: 6px 0 26px; font-size: 13.5px; color: var(--text-3); }
+.back-role {
+  align-self: flex-start; margin-bottom: 18px; padding: 0;
+  border: 0; background: none; font-size: 13px; color: var(--text-3);
+  transition: color var(--dur) var(--ease);
+}
+.back-role:hover { color: var(--primary); }
+.field { display: block; margin-bottom: 18px; }
+.field > span { display: block; margin-bottom: 8px; font-size: 13.5px; color: var(--text-2); }
+.field input {
+  width: 100%; height: 46px; padding: 0 14px;
+  border: 1px solid var(--ctrl-border); border-radius: var(--radius-ctrl);
+  background: var(--card-bg); color: var(--text-1);
+  font-size: 15px; font-family: inherit; outline: none;
+  transition: all var(--dur) var(--ease);
+}
+.field input::placeholder { color: var(--text-3); }
+.field input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14); }
+.row-between { display: flex; align-items: center; justify-content: space-between; margin: 2px 0 22px; font-size: 13.5px; }
+.check { display: flex; align-items: center; gap: 7px; color: var(--text-2); }
+.divider { display: flex; align-items: center; gap: 12px; margin: 22px 0 16px; font-size: 13px; color: var(--text-3); }
+.divider::before, .divider::after { content: ''; height: 1px; flex: 1; background: var(--panel-bg); }
+/* 管理员没有注册入口：账号由系统分配 */
+.is-hidden { display: none !important; }
+.admin-note {
+  margin-top: 18px; padding: 11px 14px;
+  background: var(--panel-bg); border-radius: var(--radius-ctrl);
+  font-size: 13px; color: var(--text-2);
+}
+
+/* ============================ 首页 ============================ */
+.hero {
+  display: flex; align-items: center; justify-content: space-between; gap: 28px;
+  padding: 24px 28px; margin-bottom: var(--space-card);
+  border-radius: var(--radius-lg);
+  background: var(--card-bg-glass);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  box-shadow: var(--shadow-card);
+  transition: box-shadow var(--dur) var(--ease);
+}
+.hero:hover { box-shadow: var(--shadow-hover); }
+.eyebrow { font-size: 13px; color: var(--text-3); }
+.hero-row { display: flex; align-items: flex-end; gap: 18px; margin-top: 6px; }
+.score { font-size: 46px; font-weight: 700; line-height: 1; color: var(--primary); }
+.score small { font-size: 15px; font-weight: 500; color: var(--text-3); margin-left: 4px; }
+.hero-name { font-size: 16px; color: var(--text-1); font-weight: 500; }
+.hero-time { font-size: 13px; color: var(--text-3); margin-top: 2px; }
+.hero-right { display: flex; align-items: center; gap: 14px; flex: none; }
+
+.entries { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-card); margin-bottom: var(--space-card); }
+.entry { display: flex; align-items: center; gap: 14px; padding: 18px 20px; }
+.entry:hover { box-shadow: var(--shadow-hover); transform: translateY(-2px); }
+.entry-icon {
+  width: 46px; height: 46px; flex: none; border-radius: 14px;
+  display: flex; align-items: center; justify-content: center;
+}
+.entry-icon svg { width: 22px; height: 22px; }
+.tone-blue { background: linear-gradient(140deg, #eff6ff, #dbeaff); color: #1f7aff; }
+.tone-teal { background: linear-gradient(140deg, #e6fbf7, #d2f4ee); color: #0e9c8d; }
+.tone-purple { background: linear-gradient(140deg, #f6f4fe, #eae5fe); color: var(--accent-purple); }
+.entry-body { flex: 1; min-width: 0; }
+.entry-body h3 { font-family: var(--font-sans); font-size: 15.5px; font-weight: 600; }
+.entry-body p { font-size: 12.5px; color: var(--text-3); margin-top: 2px; }
+.entry-arrow { color: var(--text-3); font-size: 16px; transition: all var(--dur) var(--ease); }
+.entry:hover .entry-arrow { color: var(--primary); transform: translateX(3px); }
+
+.bottom { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: var(--space-card); }
+.card-head { display: flex; align-items: center; justify-content: space-between; padding: 18px 22px 14px; }
+.card-head h3 { font-family: var(--font-sans); font-size: 16px; font-weight: 600; }
+.card-head a { font-size: 13px; }
+.rec-list { list-style: none; padding: 0 14px 14px; }
+.rec-list li {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 8px; border-radius: var(--radius-ctrl);
+  transition: background var(--dur) var(--ease);
+}
+.rec-list li:hover { background: var(--panel-bg); }
+.rec-list .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.dot-a { background: var(--risk-a); } .dot-b { background: var(--risk-b); } .dot-c { background: var(--risk-c); }
+.rec-name { font-size: 14.5px; color: var(--text-1); }
+.rec-time { font-size: 12.5px; color: var(--text-3); }
+.rec-list .grow { flex: 1; min-width: 0; }
+
+.banner {
+  position: relative; overflow: hidden;
+  border-radius: var(--radius-sm);
+  aspect-ratio: 2.5 / 1;      /* 与 --banner-ratio 同源 */
+  background: linear-gradient(126deg, #2563eb, #1d4fd8);
+  color: #fff;
+  display: flex; flex-direction: column; justify-content: center;
+  padding: 0 30px;
+  box-shadow: var(--shadow-card);
+  transition: box-shadow var(--dur) var(--ease);
+}
+.banner:hover { box-shadow: var(--shadow-hover); }
+.banner::after {
+  content: ''; position: absolute; right: -60px; top: -80px;
+  width: 240px; height: 240px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.26), transparent 70%);
+}
+.banner-tag {
+  align-self: flex-start; padding: 3px 10px; border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.2); font-size: 12px; margin-bottom: 10px;
+}
+.banner h3 { color: #fff; font-size: 20px; }
+.banner p { font-size: 13px; color: rgba(255, 255, 255, 0.86); margin-top: 6px; }
+.banner-dots { position: absolute; left: 30px; bottom: 14px; display: flex; gap: 6px; }
+.banner-dots i { width: 6px; height: 6px; border-radius: 50%; background: rgba(255, 255, 255, 0.45); }
+.banner-dots i.on { width: 18px; border-radius: 3px; background: #fff; }
+
+/* ============================ 后台 ============================ */
+.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-card); margin-bottom: var(--space-card); }
+.stat { padding: 18px 22px; }
+.stat-label { font-size: 13px; color: var(--text-3); }
+.stat-value { display: block; margin-top: 6px; font-size: 30px; font-weight: 700; color: var(--text-1); line-height: 1.1; }
+.stat-value.is-crisis { color: var(--risk-d); }
+.stat-foot { display: block; margin-top: 6px; font-size: 12.5px; color: var(--text-3); }
+
+.table-card { overflow: hidden; }
+.filters { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 20px; border-bottom: 1px solid var(--panel-bg); }
+.tabs { display: flex; gap: 4px; }
+.tab {
+  display: flex; align-items: center; gap: 6px;
+  padding: 7px 14px; border-radius: var(--radius-ctrl);
+  font-size: 14px; color: var(--text-2); cursor: pointer;
+  transition: all var(--dur) var(--ease);
+}
+.tab:hover { background: var(--panel-bg); }
+.tab.is-active { background: var(--primary-soft); color: var(--primary); font-weight: 500; }
+.tab em { font-style: normal; font-family: var(--font-mono); font-size: 12px; opacity: 0.8; }
+.filter-right { display: flex; align-items: center; gap: 10px; }
+.input {
+  width: 232px; height: 36px; padding: 0 13px;
+  border: 1px solid var(--ctrl-border); border-radius: var(--radius-ctrl);
+  background: var(--card-bg); color: var(--text-1); font-size: 14px; font-family: inherit; outline: none;
+  transition: all var(--dur) var(--ease);
+}
+.input::placeholder { color: var(--text-3); }
+.input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14); }
+
+.table { width: 100%; border-collapse: collapse; }
+.table th {
+  padding: 12px 20px; text-align: left;
+  background: var(--panel-bg);
+  font-size: 13.5px; font-weight: 500; color: var(--text-2); white-space: nowrap;
+}
+.table td { padding: 14px 20px; border-bottom: 1px solid #f1f5fa; font-size: 14px; color: var(--text-1); }
+.table tbody tr { transition: background var(--dur) var(--ease); }
+.table tbody tr:hover { background: #fafcfe; }
+.table tbody tr:last-child td { border-bottom: 0; }
+.ta-right { text-align: right; }
+.td-mono { font-family: var(--font-mono); font-size: 13px; color: var(--text-2); }
+.td-sub { display: block; font-size: 12.5px; color: var(--text-3); }
+.row-actions { display: inline-flex; gap: 8px; justify-content: flex-end; }
+
+/* ============================ 改动对照 ============================ */
+.diff-card { padding: 26px 28px; margin-bottom: var(--space-card); }
+.diff-card h2 { font-size: 19px; margin-bottom: 4px; }
+.diff-card .note { font-size: 13px; color: var(--text-3); margin-bottom: 18px; }
+.diff-sub { font-family: var(--font-sans); font-size: 15px; font-weight: 600; margin: 24px 0 6px; }
+.diff-table { width: 100%; border-collapse: collapse; }
+.diff-table th { padding: 11px 14px; text-align: left; background: var(--panel-bg); font-size: 13.5px; font-weight: 500; color: var(--text-2); }
+.diff-table th:first-child { border-radius: var(--radius-ctrl) 0 0 var(--radius-ctrl); }
+.diff-table th:last-child { border-radius: 0 var(--radius-ctrl) var(--radius-ctrl) 0; }
+.diff-table td { padding: 12px 14px; border-bottom: 1px solid #f1f5fa; font-size: 14px; color: var(--text-1); vertical-align: top; }
+.diff-table tbody tr:last-child td { border-bottom: 0; }
+.diff-table .item { color: var(--text-1); font-weight: 500; white-space: nowrap; }
+.diff-table .old { color: var(--text-3); font-size: 13.5px; font-family: var(--font-mono); }
+.diff-table .new { color: var(--primary); font-size: 13.5px; font-family: var(--font-mono); }
+.diff-table .why { color: var(--text-2); font-size: 13.5px; }
+.hard-rules { list-style: none; display: flex; flex-direction: column; gap: 10px; }
+.hard-rules li {
+  display: flex; gap: 10px; padding: 13px 16px;
+  background: var(--panel-bg); border-radius: var(--radius-ctrl);
+  font-size: 13.5px; color: var(--text-2);
+}
+.hard-rules b { color: var(--text-1); font-weight: 600; }
+.legend { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+
+/* ============================ 切换器 ============================ */
+.switcher {
+  position: fixed; right: 24px; bottom: 24px; z-index: 99;
+  display: flex; gap: 4px; padding: 5px;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.86);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid var(--card-border);
+  box-shadow: 0 10px 24px rgba(11, 18, 32, 0.12);
+}
+.sw-btn {
+  padding: 8px 16px; border: 0; border-radius: var(--radius-pill);
+  background: transparent; color: var(--text-2); font-size: 13.5px;
+  transition: all var(--dur) var(--ease);
+}
+.sw-btn:hover { color: var(--primary); }
+.sw-btn.is-active { background: var(--primary); color: #fff; box-shadow: var(--shadow-primary); }
+
+/* ============================ 响应式 ============================ */
+@media (max-width: 1180px) {
+  .entries { grid-template-columns: minmax(0, 1fr); }
+  .bottom { grid-template-columns: minmax(0, 1fr); }
+  .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  /* 窄屏：简介文字收起，只留操作页（否则两栏挤到 244px 无法阅读） */
+  .auth-frame { width: 520px; }
+  .auth-card { height: auto; }
+  .brand-text { display: none; }
+  /* 简介区没了 → 白点层也一起收掉（JS 侧同时会跳过绘制） */
+  .auth-dots { display: none; }
+  .auth-action { position: static; width: 100%; }
+  .screen { position: static; display: none; padding: 38px 34px; }
+  .screen.is-on { display: flex; }
+  /* 单栏时没有「另一边」可换，关掉平移（否则面板会被推出视口） */
+  .auth-card.is-form .auth-action { transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+</style>
+
+<!-- 动效前置态必须在「首次绘制之前」挂上，否则会出现「内容先正常画一帧 → 再被隐藏
+     → 淡入」的闪烁。放在 head 里紧跟样式之后，就能保证从第一帧起就是 opacity:0。
+     ⚠️ 这里的判定条件必须与文件末尾的动效引擎**完全一致**：这里挂了类而引擎没启动
+     → 内容会被前置态永久藏住（最坏情况）；这里没挂而引擎启动 → 只是可能闪一下。 -->
+<script>
+(function () {
+  if (!window.Element || !Element.prototype.animate) return
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+  document.documentElement.classList.add('anim-ready')
+})()
+</script>
+</head>
+<body>
+
+<!-- ============================================================
+     视图 1 · 登录页
+     ============================================================ -->
+<section class="view" data-view="login">
+  <div class="auth-wrap">
+    <div class="auth-frame">
+    <div class="auth-card" id="authCard" data-reveal="brand-intro">
+      <!-- 简介页背景动效：白点漂移场（WebGL）。必须放在最前 —— 靠 z-index 分层，
+           它是 z0，文字层 z1、白板 z2 -->
+      <canvas class="auth-dots" id="brandDots" aria-hidden="true"></canvas>
+      <!-- 简介文字（左份）。右份由脚本克隆，保证两侧内容永远一致 -->
+      <div class="brand-text left">
+        <!-- data-anim 是 skill 的「数据属性驱动」约定：元素自己声明入场动作，
+             由 recipe 决定节奏。标题拆成两行 span 是为了逐行升起（原 <br> 无法单独动） -->
+        <div class="brand-logo" data-anim="chrome">
+          <span class="mark">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#fff" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M2 12h4l2.5-6 3 12 3-9 2 3h5.5" />
+            </svg>
+          </span>
+          <span class="name">PsyCare</span>
+        </div>
+        <h2 class="brand-title">
+          <span class="bt-line" data-anim="line">让每一次倾诉</span>
+          <span class="bt-line" data-anim="line">都被认真<span class="bt-em">听见<i class="bt-under" data-anim="draw"></i></span></span>
+        </h2>
+        <p class="brand-desc" data-anim="line">社区心理健康评测与咨询系统</p>
+        <ul class="brand-feats">
+          <li data-anim="right"><span class="ok" data-anim="pop">✓</span>专业量表评测 · 4 张标准量表</li>
+          <li data-anim="right"><span class="ok" data-anim="pop">✓</span>AI 智能问诊 · 7×24 小时在线</li>
+          <li data-anim="right"><span class="ok" data-anim="pop">✓</span>医生在线咨询 · 24 位执业医师</li>
+        </ul>
+      </div>
+
+      <!-- 操作页：两屏 —— ① 选择身份 ② 登录表单 -->
+      <div class="auth-action">
+
+        <div class="screen is-on" data-screen="role">
+          <h3 class="form-title">欢迎回来</h3>
+          <p class="form-sub">请选择你的身份以继续</p>
+
+          <div class="role-list">
+            <button class="role-item" type="button" data-role="user" data-anim="card">
+              <span class="role-ico">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="8" r="3.6"/>
+                  <path d="M5.2 19.8c0-3.5 3-5.8 6.8-5.8s6.8 2.3 6.8 5.8"/>
+                </svg>
+              </span>
+              <span class="rtext">
+                <span class="rname">用户登录</span>
+                <span class="rsub">查看测评与咨询</span>
+              </span>
+            </button>
+
+            <button class="role-item" type="button" data-role="doctor" data-anim="card">
+              <span class="role-ico">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="6.8" r="3.2"/>
+                  <path d="M5.8 17.4c0-3 2.8-4.9 6.2-4.9s6.2 1.9 6.2 4.9"/>
+                  <path d="M12 15.6v4.4M9.8 17.8h4.4"/>
+                </svg>
+              </span>
+              <span class="rtext">
+                <span class="rname">医生登录</span>
+                <span class="rsub">处理咨询与预警</span>
+              </span>
+            </button>
+
+            <button class="role-item" type="button" data-role="admin" data-anim="card">
+              <span class="role-ico">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M12 3.4 5.8 5.8v5.6c0 3.9 2.6 6.7 6.2 8 3.6-1.3 6.2-4.1 6.2-8V5.8z"/>
+                  <path d="M9.4 11.6l1.9 1.9 3.4-3.7"/>
+                </svg>
+              </span>
+              <span class="rtext">
+                <span class="rname">管理员登录</span>
+                <span class="rsub">用户与内容维护</span>
+              </span>
+            </button>
+          </div>
+        </div>
+
+        <div class="screen" data-screen="form">
+          <button class="back-role" type="button" id="backRole">← 换个身份</button>
+          <h3 class="form-title" id="formTitle">居民登录</h3>
+          <p class="form-sub" id="formSub">使用社区发放的账号登录，查看测评与咨询记录</p>
+
+          <label class="field">
+            <span>用户名</span>
+            <input type="text" value="user01" placeholder="请输入用户名">
+          </label>
+          <label class="field">
+            <span>密码</span>
+            <input type="password" value="user123" placeholder="请输入密码">
+          </label>
+
+          <div class="row-between">
+            <label class="check"><input type="checkbox" checked> 记住我</label>
+            <a href="#">忘记密码？</a>
+          </div>
+
+          <button class="btn btn-primary btn-block btn-lg" id="loginBtn">登 录</button>
+
+          <div id="registerBox">
+            <div class="divider"><span>还没有账号？</span></div>
+            <button class="btn btn-ghost btn-block btn-lg">注 册</button>
+          </div>
+
+          <p class="admin-note is-hidden" id="adminNote">管理员账号由系统统一分配，如需开通请联系信息科。</p>
+        </div>
+
+      </div>
+    </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     视图 2 · 居民端首页（无顶栏 + 左侧窄图标栏）
+     ============================================================ -->
+<section class="view" data-view="home">
+  <div class="app-shell">
+    <aside class="rail">
+      <div class="rail-logo">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#fff" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M2 12h4l2.5-6 3 12 3-9 2 3h5.5" />
+        </svg>
+      </div>
+
+      <nav class="rail-nav">
+        <a class="rail-item is-active" data-tip="首页" href="#">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 10.6 12 3.5l9 7.1V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z" />
+          </svg>
+        </a>
+        <a class="rail-item" data-tip="测评中心" href="#">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9.5 5H20M9.5 12H20M9.5 19H20M4 5l1.2 1.2L7.4 4M4 12l1.2 1.2L7.4 11M4 19l1.2 1.2L7.4 18" />
+          </svg>
+        </a>
+        <a class="rail-item" data-tip="AI 问诊" href="#">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 11.6c0 4.3-4 7.8-9 7.8-1.4 0-2.7-.3-3.9-.8L3 20.5l1.4-4.1A7.4 7.4 0 0 1 3 11.6C3 7.3 7 3.8 12 3.8s9 3.5 9 7.8Z" />
+            <path d="M8.6 11.6h.01M12 11.6h.01M15.4 11.6h.01" />
+          </svg>
+        </a>
+        <a class="rail-item" data-tip="医生咨询" href="#">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5.5 3.5v5a6.5 6.5 0 0 0 13 0v-5" />
+            <path d="M12 15.2v1.6a4 4 0 0 0 8 0v-1.4" />
+            <circle cx="20" cy="12.6" r="2.2" />
+          </svg>
+        </a>
+        <a class="rail-item" data-tip="我的消息" href="#">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3.5 5.5h17v13h-17z" />
+            <path d="m3.5 7 8.5 5.6L20.5 7" />
+          </svg>
+          <span class="rail-dot">3</span>
+        </a>
+        <a class="rail-item" data-tip="通知" href="#">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 8.5a6 6 0 1 0-12 0c0 6-2.5 7.5-2.5 7.5h17S18 14.5 18 8.5Z" />
+            <path d="M10.3 20a2 2 0 0 0 3.4 0" />
+          </svg>
+        </a>
+      </nav>
+
+      <div class="rail-foot">
+        <span class="role-avatar is-user" style="--ra-size:40px">
+          <svg viewBox="0 0 96 96" fill="none" aria-hidden="true">
+            <circle cx="48" cy="35" r="14" fill="#6B7A90" />
+            <rect x="42.5" y="44" width="11" height="13" fill="#6B7A90" />
+            <path d="M20 84 C 20 67 32 55 48 55 C 64 55 76 67 76 84 Z" fill="#6B7A90" />
+          </svg>
+        </span>
+      </div>
+    </aside>
+
+    <div class="app-body">
+      <main class="content">
+        <div class="content-inner">
+
+          <!-- 页头：改版后补一层 L1 白面（副标题 3.31 → 4.8:1） -->
+          <header class="page-header" data-reveal="header">
+            <div>
+              <h1>下午好，张伟</h1>
+              <p class="sub">2026 年 10 月 13 日 周一 · 已连续记录 6 天</p>
+            </div>
+            <button class="btn btn-primary">开始测评</button>
+          </header>
+
+          <!-- hero：玻璃面（半透明 + 毛玻璃，二者必须成对） -->
+          <div class="hero" data-reveal="hero">
+            <div>
+              <span class="eyebrow">最近一次测评</span>
+              <div class="hero-row">
+                <span class="score mono">6<small>分</small></span>
+                <div>
+                  <div class="hero-name">PHQ-9 · 抑郁自评量表</div>
+                  <div class="hero-time">2026-10-11 20:14 完成 · 用时 2 分 48 秒</div>
+                </div>
+              </div>
+            </div>
+            <div class="hero-right">
+              <span class="chip chip-b">轻度 · 建议保持关注</span>
+              <button class="btn btn-ghost">查看报告 →</button>
+            </div>
+          </div>
+
+          <!-- 三个入口 -->
+          <div class="entries" data-reveal="grid">
+            <a class="entry card" href="#">
+              <span class="entry-icon tone-blue">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M6 3.5h8.5L19 8v12.5H6z" />
+                  <path d="M14 3.5V8h5M9 13h6M9 16.5h4" />
+                </svg>
+              </span>
+              <div class="entry-body">
+                <h3>在线测评</h3>
+                <p>4 张专业量表 · 约 3 分钟</p>
+              </div>
+              <span class="entry-arrow">→</span>
+            </a>
+
+            <a class="entry card" href="#">
+              <span class="entry-icon tone-teal">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="4" y="7.5" width="16" height="12.5" rx="5" />
+                  <path d="M12 7.5V4.5M9 13h.01M15 13h.01M10 16.2c1.2 1 2.8 1 4 0" />
+                </svg>
+              </span>
+              <div class="entry-body">
+                <h3>AI 智能问诊</h3>
+                <p>随时倾诉 · 7×24 小时在线</p>
+              </div>
+              <span class="entry-arrow">→</span>
+            </a>
+
+            <a class="entry card" href="#">
+              <span class="entry-icon tone-purple">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="8" r="3.6" />
+                  <path d="M5 20c0-3.6 3.1-6.2 7-6.2s7 2.6 7 6.2" />
+                  <path d="M17.4 5.6h4M19.4 3.6v4" />
+                </svg>
+              </span>
+              <div class="entry-body">
+                <h3>医生咨询</h3>
+                <p>10 个科室 · 24 位医生在线</p>
+              </div>
+              <span class="entry-arrow">→</span>
+            </a>
+          </div>
+
+          <!-- 底部两栏 1.2 : 1 -->
+          <div class="bottom" data-reveal="stagger">
+            <div class="card">
+              <div class="card-head">
+                <h3>最近记录</h3>
+                <a href="#">全部记录 →</a>
+              </div>
+              <ul class="rec-list">
+                <li>
+                  <span class="dot dot-b"></span>
+                  <div class="grow">
+                    <div class="rec-name">PHQ-9 抑郁自评量表</div>
+                    <div class="rec-time">2026-10-11 20:14</div>
+                  </div>
+                  <span class="chip chip-b">轻度</span>
+                </li>
+                <li>
+                  <span class="dot dot-a"></span>
+                  <div class="grow">
+                    <div class="rec-name">GAD-7 焦虑自评量表</div>
+                    <div class="rec-time">2026-10-04 09:32</div>
+                  </div>
+                  <span class="chip chip-a">正常</span>
+                </li>
+                <li>
+                  <span class="dot dot-c"></span>
+                  <div class="grow">
+                    <div class="rec-name">PSQI 睡眠质量指数</div>
+                    <div class="rec-time">2026-09-27 22:05</div>
+                  </div>
+                  <span class="chip chip-c">偏重</span>
+                </li>
+              </ul>
+            </div>
+
+            <div class="banner">
+              <span class="banner-tag">健康科普</span>
+              <h3>睡眠与情绪：被忽略的双向通道</h3>
+              <p>每周三晚 8 点 · 线上直播</p>
+              <div class="banner-dots"><i class="on"></i><i></i><i></i></div>
+            </div>
+          </div>
+
+        </div>
+      </main>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     视图 3 · 管理后台（窄图标栏 + 56px 玻璃顶栏）
+     ============================================================ -->
+<section class="view" data-view="admin">
+  <div class="app-shell">
+    <aside class="rail">
+      <div class="rail-logo">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#fff" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M2 12h4l2.5-6 3 12 3-9 2 3h5.5" />
+        </svg>
+      </div>
+
+      <nav class="rail-nav">
+        <a class="rail-item" data-tip="数据概览" href="#">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3.5" y="3.5" width="7" height="7" rx="2" />
+            <rect x="13.5" y="3.5" width="7" height="7" rx="2" />
+            <rect x="3.5" y="13.5" width="7" height="7" rx="2" />
+            <rect x="13.5" y="13.5" width="7" height="7" rx="2" />
+          </svg>
+        </a>
+        <a class="rail-item is-active" data-tip="预警控制台" href="#">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 3.5 2.5 20.5h19z" />
+            <path d="M12 9.8v4.4M12 17.6h.01" />
+          </svg>
+          <span class="rail-dot">12</span>
+        </a>
+        <a class="rail-item" data-tip="居民档案" href="#">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M15.5 20.5v-1.6a4 4 0 0 0-4-4h-4a4 4 0 0 0-4 4v1.6" />
+            <circle cx="9.5" cy="7.3" r="3.4" />
+            <path d="M18.5 20.5v-1.6a4 4 0 0 0-3-3.8M15.2 4.1a3.4 3.4 0 0 1 0 6.5" />
+          </svg>
+        </a>
+        <a class="rail-item" data-tip="量表管理" href="#">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M6 3.5h8.5L19 8v12.5H6z" />
+            <path d="M14 3.5V8h5M9 12.5h6M9 16h4" />
+          </svg>
+        </a>
+        <a class="rail-item" data-tip="轮播管理" href="#">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3.5" y="5.5" width="17" height="13" rx="3" />
+            <path d="m7.5 14 2.8-3.2 2.4 2.6 1.8-1.6 2 2.2M8.6 9.6h.01" />
+          </svg>
+        </a>
+        <a class="rail-item" data-tip="知识库" href="#">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 5.5a2 2 0 0 1 2-2h13v17H6a2 2 0 0 1-2-2z" />
+            <path d="M19 17H6" />
+          </svg>
+        </a>
+      </nav>
+
+      <div class="rail-foot">
+        <span class="role-avatar is-admin" style="--ra-size:40px">
+          <svg viewBox="0 0 96 96" fill="none" aria-hidden="true">
+            <circle cx="48" cy="35" r="14" fill="#7C5CF6" />
+            <rect x="42.5" y="44" width="11" height="13" fill="#7C5CF6" />
+            <path d="M20 84 C 20 67 32 55 48 55 C 64 55 76 67 76 84 Z" fill="#7C5CF6" />
+            <path d="M48 58.5 L 61.5 63 C 61.5 73.5 55.8 80 48 82.5 C 40.2 80 34.5 73.5 34.5 63 Z" fill="#FFFFFF" />
+            <path d="M41.5 70.5 L 46 75 L 55 65.5" stroke="#7C5CF6" stroke-width="4.2" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </span>
+      </div>
+    </aside>
+
+    <div class="app-body">
+      <!-- 顶栏：64 → 56px，半透明白 + 毛玻璃 -->
+      <header class="topbar">
+        <div class="crumb">管理控制台 <span>/</span> <b>预警控制台</b></div>
+        <div class="topbar-right">
+          <input class="input" placeholder="搜索居民 / 工单号" style="width:200px">
+          <button class="icon-btn" title="通知">
+            <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M18 8.5a6 6 0 1 0-12 0c0 6-2.5 7.5-2.5 7.5h17S18 14.5 18 8.5Z" />
+              <path d="M10.3 20a2 2 0 0 0 3.4 0" />
+            </svg>
+          </button>
+          <div class="avatar-chip">
+            <span class="role-avatar is-admin" style="--ra-size:36px">
+              <svg viewBox="0 0 96 96" fill="none" aria-hidden="true">
+                <circle cx="48" cy="35" r="14" fill="#7C5CF6" />
+                <rect x="42.5" y="44" width="11" height="13" fill="#7C5CF6" />
+                <path d="M20 84 C 20 67 32 55 48 55 C 64 55 76 67 76 84 Z" fill="#7C5CF6" />
+                <path d="M48 58.5 L 61.5 63 C 61.5 73.5 55.8 80 48 82.5 C 40.2 80 34.5 73.5 34.5 63 Z" fill="#FFFFFF" />
+                <path d="M41.5 70.5 L 46 75 L 55 65.5" stroke="#7C5CF6" stroke-width="4.2" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+            </span>
+            <span>李管理员</span>
+          </div>
+        </div>
+      </header>
+
+      <main class="content">
+        <div class="content-inner">
+
+          <header class="page-header" data-reveal="header">
+            <div>
+              <h1>预警控制台</h1>
+              <p class="sub">实时监控居民测评风险 · 危机工单需 30 分钟内响应</p>
+            </div>
+            <div style="display:flex;gap:10px">
+              <button class="btn btn-plain">导出</button>
+              <button class="btn btn-primary">批量派单</button>
+            </div>
+          </header>
+
+          <div class="stats" data-reveal="grid">
+            <div class="stat card">
+              <span class="stat-label">待处理工单</span>
+              <span class="stat-value mono">12</span>
+              <span class="stat-foot">较昨日 +3</span>
+            </div>
+            <div class="stat card">
+              <span class="stat-label">危机工单</span>
+              <span class="stat-value mono is-crisis">3</span>
+              <span class="stat-foot">2 单剩余不足 15 分钟</span>
+            </div>
+            <div class="stat card">
+              <span class="stat-label">今日新增</span>
+              <span class="stat-value mono">28</span>
+              <span class="stat-foot">测评提交 96 次</span>
+            </div>
+            <div class="stat card">
+              <span class="stat-label">平均响应</span>
+              <span class="stat-value mono">18<small style="font-size:15px;color:var(--text-3)">min</small></span>
+              <span class="stat-foot">达标率 92%</span>
+            </div>
+          </div>
+
+          <div class="card table-card" data-reveal="rise">
+            <div class="filters">
+              <div class="tabs">
+                <span class="tab is-active">待处理 <em>9</em></span>
+                <span class="tab">处理中 <em>3</em></span>
+                <span class="tab">已完成</span>
+                <span class="tab">全部</span>
+              </div>
+              <div class="filter-right">
+                <input class="input" placeholder="搜索居民姓名 / 工单号">
+                <button class="btn btn-plain btn-sm">筛选</button>
+              </div>
+            </div>
+
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>工单号</th>
+                  <th>居民</th>
+                  <th>预警类型</th>
+                  <th>风险等级</th>
+                  <th>触发时间</th>
+                  <th>状态</th>
+                  <th class="ta-right">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td class="td-mono">ALT-20261013-0042</td>
+                  <td>王小雨 <span class="td-sub">女 · 34 岁</span></td>
+                  <td>危机项触发</td>
+                  <td><span class="chip chip-d">危机</span></td>
+                  <td class="td-mono">10-13 10:52</td>
+                  <td><span class="chip chip-d">待处理</span></td>
+                  <td class="ta-right">
+                    <span class="row-actions">
+                      <button class="btn btn-plain btn-sm">查看</button>
+                      <button class="btn btn-primary btn-sm">介入</button>
+                    </span>
+                  </td>
+                </tr>
+                <tr>
+                  <td class="td-mono">ALT-20261013-0041</td>
+                  <td>陈志远 <span class="td-sub">男 · 47 岁</span></td>
+                  <td>总分超阈值</td>
+                  <td><span class="chip chip-c">高风险</span></td>
+                  <td class="td-mono">10-13 09:18</td>
+                  <td><span class="chip chip-b">处理中</span></td>
+                  <td class="ta-right">
+                    <span class="row-actions">
+                      <button class="btn btn-plain btn-sm">查看</button>
+                      <button class="btn btn-primary btn-sm">派单</button>
+                    </span>
+                  </td>
+                </tr>
+                <tr>
+                  <td class="td-mono">ALT-20261012-0039</td>
+                  <td>刘敏 <span class="td-sub">女 · 26 岁</span></td>
+                  <td>趋势连续上升</td>
+                  <td><span class="chip chip-b">中风险</span></td>
+                  <td class="td-mono">10-12 21:03</td>
+                  <td><span class="chip chip-n">已归档</span></td>
+                  <td class="ta-right">
+                    <span class="row-actions">
+                      <button class="btn btn-plain btn-sm">查看</button>
+                    </span>
+                  </td>
+                </tr>
+                <tr>
+                  <td class="td-mono">ALT-20261012-0036</td>
+                  <td>赵一鸣 <span class="td-sub">男 · 19 岁</span></td>
+                  <td>总分超阈值</td>
+                  <td><span class="chip chip-c">高风险</span></td>
+                  <td class="td-mono">10-12 15:47</td>
+                  <td><span class="chip chip-b">处理中</span></td>
+                  <td class="ta-right">
+                    <span class="row-actions">
+                      <button class="btn btn-plain btn-sm">查看</button>
+                      <button class="btn btn-primary btn-sm">派单</button>
+                    </span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+        </div>
+      </main>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     视图 4 · 改动对照
+     ============================================================ -->
+<section class="view" data-view="diff">
+  <div class="app-body" style="margin-left:0">
+    <main class="content">
+      <div class="content-inner" style="max-width:1040px">
+
+        <header class="page-header" data-reveal="header">
+          <div>
+            <h1>改动对照</h1>
+            <p class="sub">同一份设计 token 改三处，三端同时生效</p>
+          </div>
+        </header>
+
+        <div class="card diff-card" data-reveal="rise">
+          <h2>一、全局 Token</h2>
+          <p class="note">只改 tokens.css + App.vue 的 ConfigProvider，居民端 / 医生端 / 管理端一并变化</p>
+          <table class="diff-table">
+            <thead>
+              <tr><th style="width:130px">项</th><th style="width:230px">现在</th><th style="width:230px">改后</th><th>为什么</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="item">页面底</td>
+                <td class="old">app-bg.png + 遮罩</td>
+                <td class="new">linear-gradient<br>(135deg,#C6D9F5,#D3E1F8)</td>
+                <td class="why">换背景零可读性回归：白卡对底 1.32、text-3 3.60，与现状逐项重合；且去掉图片请求</td>
+              </tr>
+              <tr>
+                <td class="item">圆角</td>
+                <td class="old">12 / 12 / 20</td>
+                <td class="new">10 / 16 / 28</td>
+                <td class="why">控件收紧、面板放开，拉开「控件 / 内卡 / 面板」三级；ConfigProvider 一处改全站</td>
+              </tr>
+              <tr>
+                <td class="item">card 阴影</td>
+                <td class="old">0 8px 24px .09</td>
+                <td class="new">0 4px 14px .05</td>
+                <td class="why">跟参考图的「平面感」，靠描边而非阴影区分边界</td>
+              </tr>
+              <tr>
+                <td class="item">hover 阴影</td>
+                <td class="old">0 12px 32px .13</td>
+                <td class="new">0 10px 24px .09</td>
+                <td class="why">同上，hover 仍要「浮起来」但幅度收敛</td>
+              </tr>
+              <tr>
+                <td class="item">card-border</td>
+                <td class="old">#d5dfeb</td>
+                <td class="new">#d5dfeb（不动）</td>
+                <td class="why">阴影变平后，它是唯一的边界信号，绝不能跟着变浅</td>
+              </tr>
+              <tr>
+                <td class="item">主色</td>
+                <td class="old">#2563EB</td>
+                <td class="new">#2563EB（不动）</td>
+                <td class="why">不换紫罗兰 —— 主色是全站 20+ 处引用，换了牵动风险色阶的心智</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="card diff-card" data-reveal="rise">
+          <h2>二、布局骨架</h2>
+          <p class="note">抽 components/SideRail.vue 共用，两个 Layout 各自保留</p>
+          <table class="diff-table">
+            <thead>
+              <tr><th style="width:150px">项</th><th style="width:230px">现在</th><th>改后</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="item">居民端导航</td>
+                <td class="old">顶部 64px 横向导航</td>
+                <td class="new">左侧 64px 窄图标栏，顶栏整个删除（4 处 calc(100vh - 64px) 改 100vh）</td>
+              </tr>
+              <tr>
+                <td class="item">后台导航</td>
+                <td class="old">232px 侧栏 + 64px 顶栏</td>
+                <td class="new">64px 窄图标栏 + 56px 半透明玻璃顶栏</td>
+              </tr>
+              <tr>
+                <td class="item">选中态</td>
+                <td class="old">浅蓝底 + 主色文字</td>
+                <td class="new">A 方案：半透明栏 + 纯白浮块 + 主色描边</td>
+              </tr>
+              <tr>
+                <td class="item">菜单名</td>
+                <td class="old">常驻文字</td>
+                <td class="new">悬浮提示（纯 CSS 自绘，不用 a-tooltip —— vendor-antd 只剩 11.82 kB）</td>
+              </tr>
+              <tr>
+                <td class="item">PageHeader</td>
+                <td class="old">无底色，副标题裸落页面底 3.31:1 ✗</td>
+                <td class="new">补一层 L1 白面 → 4.8:1 ✓（8 个页面受益）</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="card diff-card" data-reveal="rise">
+          <h2>三、登录页改版</h2>
+          <p class="note">先选身份，再进登录表单；操作页 : 简介页 = 2 : 3，整体滑动互换（宽度恒定，只换位置）</p>
+          <table class="diff-table">
+            <thead>
+              <tr><th style="width:130px">项</th><th style="width:210px">现在</th><th>改后</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="item">卡片外框</td>
+                <td class="old">直接是一张白卡</td>
+                <td class="new">外套一层透明玻璃框（半透明白 .34 + blur 12 + 细亮边 + 内高光），卡片 r28 / 外框 r38</td>
+              </tr>
+              <tr>
+                <td class="item">登录前置</td>
+                <td class="old">直接出表单</td>
+                <td class="new">先出身份选择：用户登录 / 医生登录 / 管理员登录 —— 三列并排、<strong>无边框</strong>、卡内竖向居中（大图标在上 + 主标 + 副标），无右侧箭头</td>
+              </tr>
+              <tr>
+                <td class="item">两栏比例</td>
+                <td class="old">两边各 50%，卡宽 976</td>
+                <td class="new">操作页 : 简介页 = <strong>2 : 3</strong>（40% / 60%），卡宽加至 1120 —— 比例收窄后表单仅 440px，卡不加宽输入框会掉到 300px 以下。<strong>两页宽度恒定</strong>，切换时只换位置不换宽</td>
+              </tr>
+              <tr>
+                <td class="item">身份图标</td>
+                <td class="old">RoleAvatar 彩色渐变底 + 填充式图形</td>
+                <td class="new">统一「描边墨色」：24 栅格 · <code>stroke-width 1.8</code> · <code>round</code> 端点与转角 · 色值只走 <code>currentColor</code>（静止墨色 <code>#22314B</code> → 悬停主色）。<strong>外层方框面（40px 底 + 内侧描边 + 圆角）整块撤除</strong>，只留最里面的图形本身并放大到 <strong>34px</strong></td>
+              </tr>
+              <tr>
+                <td class="item">身份卡悬停</td>
+                <td class="old">描边转主色 + 极淡阴影</td>
+                <td class="new"><strong>只改色、不改面</strong>：底色恒为 <code>--panel-bg</code>，图标与两级文字一起转主色 <code>#2563EB</code>，另加一层极淡主色外光晕。⚠️ 蓝字只能用 <code>--primary</code> 原色（<code>--panel-bg</code> 上 4.64 ✓）—— 淡化主色做副标只有 3.13，不达 AA；层级差由字号 + 字重承担</td>
+              </tr>
+              <tr>
+                <td class="item">蓝底归属</td>
+                <td class="old">挂在简介页那块面板上，随它一起平移</td>
+                <td class="new">提为<strong>卡片底色</strong>：白板滑走后露出的天然就是蓝，位置由结构保证、不靠动画补</td>
+              </tr>
+              <tr>
+                <td class="item">切换动效</td>
+                <td class="old">两块面板整体平移对调</td>
+                <td class="new">
+                  白板整体滑到左侧（<code>translateX(-150%)</code> · 0.75s，2:3 下位移 = 卡宽 60% ÷ 自身宽 40%）；<br>
+                  简介文字<strong>不跟着走</strong>：左份 .06s 起消散 → 右份 .30s 起在原位置浮现 + 上浮 8px
+                </td>
+              </tr>
+              <tr>
+                <td class="item">简介页背景</td>
+                <td class="old">纯蓝渐变，完全静止</td>
+                <td class="new">移植 <strong>guizang-ppt-skill</strong> 瑞士风模板的 WebGL 背景 —— <strong>白点漂移场</strong>：漂移 0.022/s + <strong>点自摆 sway</strong> + 波调制点密度 + 鼠标邻域强化，点距 12px，以 <code>mix-blend-mode: screen</code> / <code>opacity .42</code> 叠在蓝底上</td>
+              </tr>
+              <tr>
+                <td class="item">点阵参数</td>
+                <td class="old">密度 50 / 漂移 0.008 / 波调制相位速度 0.15（原版数值）</td>
+                <td class="new">
+                  结构照搬、参数重调（<strong>更密 + 更明显地自主运动</strong>）：<br>
+                  ① 密度 <code>50 → 52</code>（点距 18px → <strong>12px</strong>）<br>
+                  ② 漂移 <code>×2.75</code>（卡内 ~5px/s → <strong>14px/s</strong>，原速基本看不出在动）<br>
+                  ③ 波调制相位速度 <code>×2.3</code>（周期 42s → 18.5s），且暗区<strong>不再把点杀光</strong>（保留系数 .6 → .78）<br>
+                  ④ <strong>新增 sway</strong>：每个点在自己格内 ±2.4px 游走 —— 这是「点在自主运动」的真正观感来源，只靠漂移整片是刚性平移<br>
+                  <span style="color:var(--text-3)">可读性核算：点变得更密但点径同步缩小，最亮点像素 RGB(57,101,221) 上的白字对比度 <strong>5.15</strong>（旧参数 5.40、蓝底本身 6.64），仍高于 AA 的 4.5 ✓</span>
+                </td>
+              </tr>
+              <tr>
+                <td class="item">管理员</td>
+                <td class="old">与其他角色完全一致</td>
+                <td class="new">隐藏注册区，改为「账号由系统统一分配」提示</td>
+              </tr>
+              <tr>
+                <td class="item">回退路径</td>
+                <td class="old">无</td>
+                <td class="new">表单页左上角「← 换个身份」，反向滑回选择屏</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <h3 class="diff-sub">动画时序 · 进入表单（返回时自动镜像）</h3>
+          <p class="note">触发条件：点击任一身份卡 → 给卡片加 <code>.is-form</code>，全部过渡由类切换驱动，不写逐帧脚本</p>
+          <table class="diff-table">
+            <thead>
+              <tr>
+                <th style="width:86px">时刻</th>
+                <th style="width:180px">白板（操作页）</th>
+                <th style="width:160px">左侧文字</th>
+                <th>右侧文字 / 底色</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td class="td-mono">0 ms</td><td>开始左移</td><td>开始消散</td><td>隐藏 · 位置仍被白板占着（右 40%）</td></tr>
+              <tr><td class="td-mono">60 ms</td><td>左移中（缓入段）</td><td>opacity → 0 进行中</td><td>隐藏 · 右侧 60% 开始让出蓝底</td></tr>
+              <tr><td class="td-mono">300 ms</td><td>行程过半</td><td>已消散</td><td><strong>开始浮现</strong> · 上浮 8px → 0</td></tr>
+              <tr><td class="td-mono">560 ms</td><td>接近就位</td><td>—</td><td>浮现中 · 蓝底已完整</td></tr>
+              <tr><td class="td-mono">750 ms</td><td>就位（占左侧 40%）</td><td>—</td><td>接近完全显现</td></tr>
+              <tr><td class="td-mono">850 ms</td><td>静止</td><td>—</td><td><strong>完全显现 · 稳定</strong></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="card diff-card" data-reveal="rise">
+          <h2>四、动效体系</h2>
+          <p class="note">移植自 guizang-ppt-skill 的 recipe 体系 —— 每个区块一个语义化配方，不做统一 fade-up</p>
+          <table class="diff-table">
+            <thead>
+              <tr>
+                <th style="width:110px">场景</th>
+                <th style="width:200px">原来</th>
+                <th style="width:250px">现在</th>
+                <th>做法</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="item">元素进入</td>
+                <td class="old">简介页整块静止，完全没有入场</td>
+                <td class="new">品牌区 <code>brand-intro</code>：标识 → 标题逐行 → 描线 → 副标 → 三条特性 → 勾图标</td>
+                <td>走 hero 档 160ms/step；标题拆成两个 <code>.bt-line</code> 才能逐行升起</td>
+              </tr>
+              <tr>
+                <td class="item">滚动触发</td>
+                <td class="old">切视图时「整页一起 rise」，与滚动无关，滚到时早已播完</td>
+                <td class="new">每个区块挂 <code>data-reveal</code>，由 IntersectionObserver 按进入视口触发</td>
+                <td>阈值 0.15 + 底部预留 8%；触发一次即 unobserve；切视图时已在视口内的立即播</td>
+              </tr>
+              <tr>
+                <td class="item">悬停交互</td>
+                <td class="old">只有按钮有 hover</td>
+                <td class="new">标识微旋 6°、三条特性右移 6px、勾图标放大并提亮</td>
+                <td>只动 transform / 背景色，都在合成层</td>
+              </tr>
+              <tr>
+                <td class="item">语义化配方</td>
+                <td class="old">所有元素同一动作，延迟 = 下标 × 固定值</td>
+                <td class="new">
+                  页头 90ms 递进 · 卡片依序揭示（y 20→0 + scale .96→1）·<br>
+                  分数弹入 · 统计卡数字滚动计数 · 下划线从左描出
+                </td>
+                <td>动作绑在内容语义上；参数照搬 skill 的 rGridReveal / measure-up</td>
+              </tr>
+              <tr>
+                <td class="item">降级</td>
+                <td class="old">—</td>
+                <td class="new">无 WAAPI 或系统开了「减少动效」→ 引擎不启动，内容静态可读</td>
+                <td>前置态挂在 <code>.anim-ready</code> 下：类不挂，规则就不成立</td>
+              </tr>
+            </tbody>
+          </table>
+          <p class="note" style="margin-top:14px">
+            ⚠️ 动画播完必须 <code>cancel()</code> —— 否则 <code>fill:both</code> 会长期压住元素自身的悬停变换。
+            另：前置态在 head 里就挂上，避免「先画一帧再淡入」的闪烁。
+          </p>
+        </div>
+
+        <div class="card diff-card" data-reveal="rise">
+          <h2>五、四条硬约束</h2>
+          <p class="note">示例页已按这四条实现，后续写码不得违反</p>
+          <ul class="hard-rules">
+            <li><b>①</b> 新底绝不叠遮罩：alpha 0.06 就会把 text-2 从 5.40 压到 4.95，而底部本来就只有 1.32 的台阶。</li>
+            <li><b>②</b> <b>--card-border 不跟着阴影变浅</b>：阴影→5% 后描边是唯一的分层信号。</li>
+            <li><b>③</b> 悬浮提示优先纯 CSS；要用 a-tooltip 必须先真构建看体积（vendor-antd 788.18 / 800 kB）。</li>
+            <li><b>④</b> WebGL 装饰层必须三件套齐全：<code>prefers-reduced-motion</code> 时只画静态一帧；页面不可见停 RAF；无 WebGL 时回退 CSS 静态点阵。另 <code>.auth-card</code> 要加 <code>isolation: isolate</code>，把 screen 混合锁在卡内。</li>
+          </ul>
+          <div class="legend">
+            <span class="chip chip-a">低风险</span>
+            <span class="chip chip-b">中风险</span>
+            <span class="chip chip-c">高风险</span>
+            <span class="chip chip-d">危机</span>
+            <span class="chip chip-n">已归档</span>
+          </div>
+        </div>
+
+      </div>
+    </main>
+  </div>
+</section>
+
+<!-- 切换器 -->
+<div class="switcher">
+  <button class="sw-btn is-active" data-view="login">登录页</button>
+  <button class="sw-btn" data-view="home">居民端首页</button>
+  <button class="sw-btn" data-view="admin">管理后台</button>
+  <button class="sw-btn" data-view="diff">改动对照</button>
+</div>
+
+<script>
+/* ---------- 登录页：身份选择 → 白板滑走 + 简介文字交叉淡出淡入 ---------- */
+var authCard = document.getElementById('authCard')
+var screens = document.querySelectorAll('.screen')
+
+/* 简介文字只写一份，克隆到右半边 —— 两侧内容永远一致，改一处两边都变 */
+var brandLeft = document.querySelector('.brand-text.left')
+if (brandLeft) {
+  var brandRight = brandLeft.cloneNode(true)
+  brandRight.classList.remove('left')
+  brandRight.classList.add('right')
+  brandLeft.parentNode.appendChild(brandRight)
+}
+var formTitle = document.getElementById('formTitle')
+var formSub = document.getElementById('formSub')
+var registerBox = document.getElementById('registerBox')
+var adminNote = document.getElementById('adminNote')
+var loginBtn = document.getElementById('loginBtn')
+
+var ROLE_META = {
+  user: {
+    title: '用户登录',
+    sub: '使用社区发放的账号登录，查看测评与咨询记录',
+    btn: '登 录'
+  },
+  doctor: {
+    title: '医生登录',
+    sub: '使用执业医师账号登录，处理居民咨询与风险预警',
+    btn: '进入工作台'
+  },
+  admin: {
+    title: '管理员登录',
+    sub: '系统管理账号，管理用户、量表与内容发布',
+    btn: '进入管理控制台'
+  }
+}
+
+function setScreen(name) {
+  screens.forEach(function (s) { s.classList.toggle('is-on', s.dataset.screen === name) })
+}
+
+function pickRole(role) {
+  var m = ROLE_META[role]
+  formTitle.textContent = m.title
+  formSub.textContent = m.sub
+  loginBtn.textContent = m.btn
+  var isAdmin = role === 'admin'
+  /* 管理员没有注册入口：账号由系统分配 */
+  registerBox.classList.toggle('is-hidden', isAdmin)
+  adminNote.classList.toggle('is-hidden', !isAdmin)
+  /* 白板滑到左半边；简介文字同步换位（左份消散 / 右份在原位置浮现） */
+  authCard.classList.add('is-form')
+  /* 滑动途中再换屏，避免两套内容在同一帧里互相顶 */
+  setTimeout(function () { setScreen('form') }, 180)
+}
+
+function backToRole() {
+  authCard.classList.remove('is-form')
+  setTimeout(function () { setScreen('role') }, 180)
+}
+
+document.querySelectorAll('.role-item').forEach(function (el) {
+  el.addEventListener('click', function () { pickRole(el.dataset.role) })
+})
+document.getElementById('backRole').addEventListener('click', backToRole)
+
+/* ---------- 简介页背景：白点漂移场（WebGL）----------
+   移植自 guizang-ppt-skill（歸藏）瑞士风模板 assets/template-swiss.html 的 canvas.bg。
+   结构照搬（漂移 / 主副双层网格 / 点阵 / 波调制 / 鼠标邻域强化），
+   参数按「更密 + 更明显地自主运动」重调：密度 50→52、漂移 ×2.75、波调制相位速度 ×2.3、
+   新增点自摆 sway —— 每处数值与理由都写在 shader 内注释里。 */
+;(function initBrandDots() {
+  var canvas = document.getElementById('brandDots')
+  if (!canvas) return
+
+  var VS = 'attribute vec2 position;void main(){gl_Position=vec4(position,0.0,1.0);}'
+
+  var FS = [
+    'precision highp float;',
+    'uniform vec2 u_resolution;',
+    'uniform float u_time;',
+    'uniform vec2 u_mouse;',
+    'uniform float u_dark;',
+    'uniform vec3 u_accent;',
+    '',
+    'float gridLine(vec2 uv, float spacing, float thickness){',
+    '  vec2 g = abs(fract(uv / spacing) - 0.5);',
+    '  float d = min(g.x, g.y);',
+    '  return 1.0 - smoothstep(thickness - 0.005, thickness + 0.005, d);',
+    '}',
+    'float dot2(vec2 p){ return dot(p,p); }',
+    '',
+    'void main(){',
+    '  vec2 uv = gl_FragCoord.xy / u_resolution.xy;',
+    '  float aspect = u_resolution.x / u_resolution.y;',
+    '  vec2 p = uv;',
+    '  p.x *= aspect;',
+    '',
+    '  // 漂移：整场缓慢平移。（原版 0.008 / 0.005 —— 换算到本卡高 622px 只有 ~5px/s，',
+    '  // 屏幕上几乎看不出「在动」。这里 ×2.75 ≈ 14px/s：明确可感，但不会让人分心。）',
+    '  vec2 drift = vec2(u_time * 0.022, u_time * 0.015);',
+    '  vec2 gp = p + drift;',
+    '',
+    '  // 主细网格 + 更密的次级网格',
+    '  float mainGrid = gridLine(gp, 0.12, 0.012);',
+    '  float subGrid = gridLine(gp, 0.024, 0.04) * 0.4;',
+    '',
+    '  // 鼠标附近的强化',
+    '  vec2 m = u_mouse;',
+    '  m.x *= aspect;',
+    '  float md = length(p - m);',
+    '  float mInfluence = exp(-md * 4.0) * 0.5;',
+    '',
+    '  float gridStrength = (mainGrid + subGrid * 0.5) * (0.45 + mInfluence);',
+    '',
+    '  // 点阵（基底）。点距 = canvas 高度 / N → 622 / 52 ≈ 12px（此前 34 密度是 18px）。',
+    '  // 点径按「格」计算、不按像素，所以密度提高时点会同步缩小、点面积占比几乎不变',
+    '  // → 平均亮度不升，白字对比度基本不动（实测核算见「改动对照」视图的点阵参数行）。',
+    '  //',
+    '  // sway 是这次新增的：让每个点在自己的格内小幅游走。这是「白点自主运动」观感的',
+    '  // 真正来源 —— 只靠 drift 的话整片点阵是刚性平移，看起来像背景在滑动而不是点在动。',
+    '  // 相位由 gp 决定，相邻格只差 12/52 ≈ 0.23rad → 摆动是连续波面扫过，不是各自乱跳；',
+    '  // 波长 y = 2π/12 ≈ 0.52 uv（≈326px，卡内 1.9 个波）、x = 2π/10（卡内 2.9 个波），',
+    '  // 波面在卡内肉眼可辨。幅度 0.20 格 ≈ 2.4px，合成最大偏移 0.28 格 + 半径 0.155',
+    '  // 仍 < 0.5 格 → 点不会被格边界切开、不闪。',
+    '  vec2 sway = vec2(sin(gp.y * 12.0 + u_time * 0.55), cos(gp.x * 10.0 + u_time * 0.46)) * 0.20;',
+    '  vec2 dotGrid = fract(gp * 52.0 + sway) - 0.5;',
+    '  float dotMask = 1.0 - smoothstep(0.055, 0.155, length(dotGrid));',
+    '  // 波调制：白点「呼吸 / 流动」的次来源。相对原版：相位速度 ×2.3（周期 42s → 18.5s），',
+    '  // 阈值放宽到 (-0.55, 0.45) 且保留系数 0.6 → 0.78 —— 原版在波谷会把点整片杀光，',
+    '  // 这是「看起来偏疏」的一大来源；放宽后暗区只变暗不消失，整体密度感提升一档。',
+    '  float wave = sin(gp.x * 1.9 + u_time * 0.34) * cos(gp.y * 2.2 - u_time * 0.28);',
+    '  dotMask *= smoothstep(-0.55, 0.45, wave) * 0.78;',
+    '',
+    '  // 颜色：浅底用深线条 / 深底用浅线条，鼠标附近偷渡一点 accent',
+    '  vec3 lineColor = mix(vec3(0.08), vec3(0.92), u_dark);',
+    '  vec3 bgColor = mix(vec3(0.97, 0.97, 0.96), vec3(0.06, 0.06, 0.07), u_dark);',
+    '',
+    '  vec3 col = bgColor;',
+    '  col = mix(col, lineColor, gridStrength * 0.55);',
+    '  col = mix(col, lineColor, dotMask * 0.35);',
+    '  col = mix(col, u_accent, mInfluence * 0.18);',
+    '  gl_FragColor = vec4(col, 1.0);',
+    '}'
+  ].join('\n')
+
+  var gl = canvas.getContext('webgl', { alpha: true, antialias: true, premultipliedAlpha: false })
+  if (!gl) return // 拿不到 WebGL → 保留 CSS 静态点阵兜底（.auth-dots 的 background）
+
+  function mkShader(type, src) {
+    var o = gl.createShader(type)
+    gl.shaderSource(o, src)
+    gl.compileShader(o)
+    if (!gl.getShaderParameter(o, gl.COMPILE_STATUS)) {
+      console.warn('[brand-dots] shader 编译失败：' + gl.getShaderInfoLog(o))
+      return null
+    }
+    return o
+  }
+  var vs = mkShader(gl.VERTEX_SHADER, VS)
+  var fs = mkShader(gl.FRAGMENT_SHADER, FS)
+  if (!vs || !fs) return
+
+  var prog = gl.createProgram()
+  gl.attachShader(prog, vs)
+  gl.attachShader(prog, fs)
+  gl.linkProgram(prog)
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+    console.warn('[brand-dots] program 链接失败：' + gl.getProgramInfoLog(prog))
+    return
+  }
+  gl.useProgram(prog)
+
+  var buf = gl.createBuffer()
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf)
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]), gl.STATIC_DRAW)
+  var posLoc = gl.getAttribLocation(prog, 'position')
+  gl.enableVertexAttribArray(posLoc)
+  gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0)
+
+  var uRes = gl.getUniformLocation(prog, 'u_resolution')
+  var uTime = gl.getUniformLocation(prog, 'u_time')
+  var uMouse = gl.getUniformLocation(prog, 'u_mouse')
+  var uDark = gl.getUniformLocation(prog, 'u_dark')
+  var uAccent = gl.getUniformLocation(prog, 'u_accent')
+
+  function resize() {
+    var dpr = Math.min(window.devicePixelRatio || 1, 2) // 与原版一致：DPR 上限 2
+    canvas.width = Math.round(canvas.clientWidth * dpr)
+    canvas.height = Math.round(canvas.clientHeight * dpr)
+    gl.viewport(0, 0, canvas.width, canvas.height)
+  }
+  resize()
+  window.addEventListener('resize', resize)
+
+  // 鼠标换算到 canvas 局部空间。
+  // ⚠️ 这处必须改：原版 canvas 铺满视口，直接用 e.clientX/innerWidth 就行；
+  //    我们是卡内 canvas，要减掉 rect 偏移，且 y 要翻转（gl_FragCoord 原点在左下）。
+  var mouse = { x: 0.5, y: 0.5 }
+  canvas.parentElement.addEventListener('mousemove', function (e) {
+    var r = canvas.getBoundingClientRect()
+    if (!r.width || !r.height) return
+    mouse.x = (e.clientX - r.left) / r.width
+    mouse.y = 1 - (e.clientY - r.top) / r.height
+  })
+
+  var ACCENT = [0.58, 0.71, 1.0] // 鼠标附近偷渡的浅蓝
+  function draw(t) {
+    gl.uniform2f(uRes, canvas.width, canvas.height)
+    gl.uniform1f(uTime, t)
+    gl.uniform2f(uMouse, mouse.x, mouse.y)
+    gl.uniform1f(uDark, 1.0) // 蓝底按「深底」处理 → 输出亮色点线，screen 混合后即白点
+    gl.uniform3f(uAccent, ACCENT[0], ACCENT[1], ACCENT[2])
+    gl.drawArrays(gl.TRIANGLES, 0, 6)
+  }
+
+  // 不节流。此前降到 30fps 是因为 drift 只有 0.008/s、与 60fps 肉眼无差；
+  // 现在漂移提速、点自身又在摆动，30fps 的步进会显出轻微顿感 → 跟着 RAF 走（≈60fps）。
+  // 成本可控：片元着色器极简，画布 1120×622 × DPR2 ≈ 2240×1244 的局部区域，
+  // 核显满帧无压力；真正省电靠下面的 visibilitychange 暂停。
+  var raf = 0, pausedAt = 0, t0 = performance.now()
+
+  function loop(now) {
+    raf = requestAnimationFrame(loop)
+    if (canvas.clientWidth === 0) return // 窄屏 display:none → 跳过着色
+    draw((now - t0) / 1000)
+  }
+
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    draw(0) // 静态一帧：保留点阵质感，不做漂移
+  } else {
+    raf = requestAnimationFrame(loop)
+    // 后台标签页停掉 RAF，否则会一直烧 GPU
+    document.addEventListener('visibilitychange', function () {
+      if (document.hidden) {
+        pausedAt = performance.now()
+        cancelAnimationFrame(raf)
+        raf = 0
+      } else if (!raf) {
+        t0 += performance.now() - pausedAt // 补回暂停时长 → 回前台不跳帧
+        raf = requestAnimationFrame(loop)
+      }
+    })
+  }
+})()
+
+/* ============================================================
+   动效引擎 · recipe 驱动
+   ------------------------------------------------------------
+   移植自 guizang-ppt-skill（歸藏）的瑞士风模板（assets/template-swiss.html）：
+   **recipe 体系与缓动常数（IBM Carbon Motion）逐字照搬**，但驱动层由
+   Motion One 换成原生 Web Animations API —— Motion One 本身就是 WAAPI 的薄封装，
+   参数语义等价，换成原生可零网络依赖（原模板需本地 64KB 文件或 CDN 二选一）。
+
+   照搬的核心设计原则：**每个区块一个语义化 recipe，不做统一 fade-up**。
+   数字是「滚动计数 + 弹入」，卡片是「依序揭示并轻微放大到位」，标题是「逐行升起」，
+   下划线是「从左描出」—— 动作绑在内容语义上，而不是所有元素同一个淡入。
+
+   元素侧只做两件事（数据属性驱动，与 skill 一致）：
+     data-anim="<动作>"     声明这个元素怎么入场
+     data-reveal="<recipe>" 声明这个区块用哪个 recipe（挂在容器上）
+
+   四条硬约束：
+     ① 能力检测不过 / 用户开了「减少动效」→ 引擎整体不启动，且不挂 .anim-ready，
+        于是 CSS 前置态 opacity:0 不生效，内容静态可读（skill 的降级哲学）；
+     ② 只动 transform / opacity，都是合成层属性，不触发 layout；
+     ③ 动画播完必须 cancel() —— 否则 fill:both 会长期压住元素自身的悬停变换；
+     ④ 滚动触发用 IntersectionObserver，触发一次即 unobserve。
+   ============================================================ */
+;(function initMotion () {
+  var REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  if (!window.Element || !Element.prototype.animate || REDUCED) return   // ① 降级出口
+
+  document.documentElement.classList.add('anim-ready')   // head 里已挂过，此处幂等兜底
+
+  var EASE_PROD  = 'cubic-bezier(.2, 0, .38, .9)'   // 落定：快出慢停
+  var EASE_ENTRY = 'cubic-bezier(0, 0, .3, 1)'      // 入场：缓入急停
+
+  /* 动作表：data-anim 的值 → 起止帧。
+     x/y 像素位移，s 等比缩放，sx 横向缩放（描线专用）。 */
+  var KINDS = {
+    chrome: { x: [0, 0],   y: [0, 0],  s: [1, 1] },            // 纯淡入
+    line:   { x: [0, 0],   y: [10, 0], s: [1, 1] },            // 逐行升起
+    rise:   { x: [0, 0],   y: [14, 0], s: [1, 1] },            // 块体上浮
+    card:   { x: [0, 0],   y: [20, 0], s: [.96, 1] },          // 卡片揭示（照搬 rGridReveal）
+    left:   { x: [-24, 0], y: [0, 0],  s: [1, 1] },
+    right:  { x: [24, 0],  y: [0, 0],  s: [1, 1] },
+    pop:    { x: [0, 0],   y: [0, 0],  s: [.6, 1] },           // 缩放弹入
+    draw:   { x: [0, 0],   y: [0, 0],  s: [1, 1], sx: [0, 1] } // 描线
+  }
+
+  function frames (kind) {
+    var k = KINDS[kind] || KINDS.rise
+    var sx = k.sx || [1, 1]
+    function tf (i) {
+      return 'translate3d(' + k.x[i] + 'px,' + k.y[i] + 'px,0)' +
+             ' scale(' + k.s[i] + ') scaleX(' + sx[i] + ')'
+    }
+    return [
+      { opacity: 0, transform: tf(0) },
+      { opacity: 1, transform: tf(1) }
+    ]
+  }
+
+  /* 播一个动作。时间单位统一用秒（与 skill 的写法一致，内部再乘 1000） */
+  function play (el, kind, o) {
+    if (!el) return null
+    o = o || {}
+    var a = el.animate(frames(kind), {
+      duration: (o.duration || .55) * 1000,
+      delay:    (o.delay || 0) * 1000,
+      easing:   o.easing || EASE_ENTRY,
+      fill:     'both'
+    })
+    a.onfinish = function () {
+      a.cancel()                        // ③ 撤掉 fill，把元素交还给 CSS
+      el.classList.add('anim-done')
+    }
+    return a
+  }
+
+  /* 复位：切走视图再切回来要能重播。传进来的容器自身也可能是动效目标（见 rRise），
+     所以把它一并纳入清理范围。 */
+  function reset (root) {
+    var list = [root].concat(Array.prototype.slice.call(
+      root.querySelectorAll('[data-anim], [data-reveal]')
+    ))
+    list.forEach(function (el) {
+      el.getAnimations().forEach(function (a) { a.cancel() })
+      el.classList.remove('anim-done')
+    })
+  }
+
+  /* ---------- 数字滚动 ----------
+     在元素还不可见时（卡片仍是 opacity:0）先把数字归零 —— 所以看不到
+     「12 跳成 0」的穿帮。结尾必写回精确值，防止中途被打断而停在中间数。 */
+  function countUp (el, delay, dur) {
+    if (!el) return
+    var node = el.firstChild
+    if (!node || node.nodeType !== 3) return      // 只处理「纯数字 +（可选）同行后缀」
+    var raw = node.textContent
+    var target = parseFloat(raw.replace(/[^\d.]/g, ''))
+    if (!isFinite(target) || target <= 0) return
+    var suffix = raw.replace(/[\d.]+/g, '')
+    node.textContent = '0' + suffix
+    var start = performance.now() + delay * 1000
+    var span  = (dur || .8) * 1000
+    function tick (now) {
+      var p = (now - start) / span
+      if (p < 0) { requestAnimationFrame(tick); return }
+      if (p >= 1) { node.textContent = target + suffix; return }   // 收尾写回精确值
+      var e = 1 - Math.pow(1 - p, 3)                               // 三次缓出，与 EASE_PROD 同族
+      node.textContent = Math.round(target * e) + suffix
+      requestAnimationFrame(tick)
+    }
+    requestAnimationFrame(tick)
+  }
+
+  /* ---------- recipe: brand-intro · 简介页品牌区 ----------
+     skill 里封面页走 hero 档（160ms/step，比正文档的 75ms 更有仪式感），这里照搬；
+     结构也用 rHero 的三段式：先入标识 → 主体逐项错峰 → 收尾落定。 */
+  function rBrandIntro (card) {
+    /* 两份 .brand-text（左份可见、右份被父级 opacity:0 挡着）各跑一遍，
+       这样白板滑到哪一边，那边的文字都是同一套入场节奏 */
+    Array.prototype.forEach.call(card.querySelectorAll('.brand-text'), function (scope) {
+      var lines = scope.querySelectorAll('.brand-title .bt-line')
+      var t = 0.26
+      play(scope.querySelector('.brand-logo'), 'chrome', { duration: .5, delay: .10 })
+      Array.prototype.forEach.call(lines, function (el, i) {
+        play(el, 'line', { duration: .7, delay: t + i * .16 })     // 标题逐行升起
+      })
+      var tEnd = t + lines.length * .16
+      play(scope.querySelector('.bt-under'), 'draw', { duration: .6, delay: tEnd + .16 })
+      play(scope.querySelector('.brand-desc'), 'line', { duration: .55, delay: tEnd + .30 })
+      var base = tEnd + .46
+      Array.prototype.forEach.call(scope.querySelectorAll('.brand-feats li'), function (el, i) {
+        play(el, 'right', { duration: .5, delay: base + i * .16 })
+      })
+      Array.prototype.forEach.call(scope.querySelectorAll('.brand-feats .ok'), function (el, i) {
+        play(el, 'pop', { duration: .45, delay: base + i * .16 + .10, easing: EASE_PROD })
+      })
+    })
+
+    /* 操作页的三张身份卡：刻意晚于品牌区起跑，两边不同时抢注意力 */
+    Array.prototype.forEach.call(card.querySelectorAll('.role-item'), function (el, i) {
+      play(el, 'card', { duration: .5, delay: .34 + i * .10 })
+    })
+  }
+
+  /* ---------- recipe: header · 页头 ---------- 标题 → 副标 → 右侧操作，90ms 递进 */
+  function rHeader (box) {
+    play(box.querySelector('h1'), 'rise', { duration: .6, delay: 0 })
+    play(box.querySelector('.sub'), 'rise', { duration: .5, delay: .10 })
+    play(box.children[1], 'chrome', { duration: .5, delay: .20 })
+  }
+
+  /* ---------- recipe: hero · 最近一次测评 ----------
+     skill 的 measure-up 语义：外层先浮入 → 分数数字单独弹入 → 右侧标签落定 */
+  function rHero (box) {
+    play(box.querySelector('.eyebrow'), 'rise', { duration: .5, delay: 0 })
+    play(box.querySelector('.hero-row'), 'rise', { duration: .6, delay: .12 })
+    play(box.querySelector('.score'), 'pop', { duration: .62, delay: .40, easing: EASE_PROD })
+    play(box.querySelector('.hero-right'), 'chrome', { duration: .55, delay: .30 })
+  }
+
+  /* ---------- recipe: grid · 卡片依序揭示 ----------
+     参数照搬 skill 的 rGridReveal：每卡 90ms 错开、y 20→0、scale .96→1。
+     容器内含 .stat-value 时额外挂数字滚动（管理端统计卡）。 */
+  function rGrid (box) {
+    var withCount = !!box.querySelector('.stat-value')
+    Array.prototype.forEach.call(box.children, function (el, i) {
+      var d = .30 + i * .09
+      play(el, 'card', { duration: .5, delay: d })
+      if (withCount) countUp(el.querySelector('.stat-value'), d + .26, .8)
+    })
+  }
+
+  /* ---------- recipe: stagger · 两栏卡阶梯式 ---------- */
+  function rStagger (box) {
+    Array.prototype.forEach.call(box.children, function (el, i) {
+      play(el, 'rise', { duration: .55, delay: i * .11 })
+    })
+  }
+
+  /* ---------- recipe: rise · 单个块整体上浮 ---------- */
+  function rRise (box) {
+    play(box, 'rise', { duration: .6, delay: 0 })
+  }
+
+  var RECIPES = {
+    'brand-intro': rBrandIntro,
+    'header':      rHeader,
+    'hero':        rHero,
+    'grid':        rGrid,
+    'stagger':     rStagger,
+    'rise':        rRise
+  }
+
+  var observer = new IntersectionObserver(function (entries) {
+    entries.forEach(function (e) {
+      if (!e.isIntersecting) return
+      observer.unobserve(e.target)              // ④ 只触发一次
+      var fn = RECIPES[e.target.dataset.reveal]
+      if (fn) fn(e.target)
+    })
+  }, { threshold: 0.15, rootMargin: '0px 0px -8% 0px' })
+
+  /* 切到某个视图：先复位，再按「是否已经在视口内」决定立即播还是交给观察器。
+     不这样做的话，切过来后首屏内容会干等着滚动事件 —— 而它明明已经在眼前了。 */
+  function revealView (view) {
+    Array.prototype.forEach.call(view.querySelectorAll('[data-reveal]'), function (box) {
+      reset(box)
+      var r = box.getBoundingClientRect()
+      if (r.top < window.innerHeight * 0.92 && r.bottom > 0) {
+        var fn = RECIPES[box.dataset.reveal]
+        if (fn) fn(box)
+      } else {
+        observer.observe(box)
+      }
+    })
+  }
+
+  window.__revealView = function (name) {
+    var view = document.querySelector('.view[data-view="' + name + '"]')
+    if (!view) return
+    requestAnimationFrame(function () { revealView(view) })   // 等布局落定再量位置
+  }
+})()
+
+/* ---------- 视图切换 ---------- */
+var btns = document.querySelectorAll('.sw-btn')
+var views = document.querySelectorAll('.view')
+
+function showView(name) {
+  views.forEach(function (el) { el.classList.toggle('is-shown', el.dataset.view === name) })
+  btns.forEach(function (b) { b.classList.toggle('is-active', b.dataset.view === name) })
+  window.scrollTo(0, 0)
+  /* 通知动效引擎：新视图已就位，按 recipe 播放入场（引擎未启用时该钩子不存在） */
+  if (window.__revealView) window.__revealView(name)
+}
+
+btns.forEach(function (b) {
+  b.addEventListener('click', function () { showView(b.dataset.view) })
+})
+
+showView('login')
+</script>
+
+</body>
+</html>

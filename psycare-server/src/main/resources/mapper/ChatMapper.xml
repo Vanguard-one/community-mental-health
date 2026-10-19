@@ -1,0 +1,311 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.cmh.psycare.mapper.ChatMapper">
+
+    <!--
+      会话列表读模型。三个要点：
+
+      1) 【只查 consult_type = 'DOCTOR'】
+         这两张表同时装着 AI 问诊会话（consult_type = 'AI'），
+         不加这个条件，医生的对话列表里会混进一堆机器人会话。
+
+      2) 【姓名出原文，脱敏在 Service 层】
+         与 AccountMapper.xml / ResidentInfoMapper.xml 保持同一约定。
+         本 VO 的 residentName / doctorName 带 @JsonIgnore，即使漏脱敏也不会外泄。
+
+      3) 【sys_user 没有 is_deleted 过滤的口子】
+         这里用 LEFT JOIN 而不是 INNER JOIN：居民账号被软删后，
+         历史会话记录仍应可读（保留追溯），只是姓名会取到已删用户的值。
+         若产品要求"软删即不可见"，应在这里补 ru.is_deleted = 0，属于有意的产品决策。
+    -->
+    <sql id="sessionColumns">
+        cs.id                                                        AS id,
+        cs.resident_id                                               AS residentId,
+        cs.doctor_id                                                 AS doctorId,
+        cs.status                                                    AS status,
+        cs.created_at                                                AS createdAt,
+        ru.real_name                                                 AS residentName,
+        ru.username                                                  AS residentUsername,
+        du.real_name                                                 AS doctorName,
+        du.username                                                  AS doctorUsername,
+        d.title                                                      AS doctorTitle,
+        d.department                                                 AS doctorDepartment,
+        d.expertise_tags                                             AS doctorExpertise,
+        d.rating                                                     AS doctorRating,
+        (SELECT m.content
+         FROM consult_message m
+         WHERE m.session_id = cs.id
+         ORDER BY m.id DESC
+         LIMIT 1)                                                    AS lastMessage,
+        (SELECT m.created_at
+         FROM consult_message m
+         WHERE m.session_id = cs.id
+         ORDER BY m.id DESC
+         LIMIT 1)                                                    AS lastMessageAt,
+        (SELECT m.sender
+         FROM consult_message m
+         WHERE m.session_id = cs.id
+         ORDER BY m.id DESC
+         LIMIT 1)                                                    AS lastSender,
+        (SELECT COUNT(*)
+         FROM consult_message m
+         WHERE m.session_id = cs.id)                                 AS messageCount,
+        <!--
+          【未读条数】对端发来、且 read_at 仍为空的条数。
+          0 表示「这个会话的来信我都看过了」。
+
+          判定式只有一句：sender <> 我的角色 AND read_at IS NULL。
+          两个端点必须用同一句话 —— 医生端列表、居民端列表、导航红点
+          （selectUnreadSummary）三处的口径由这里锁定，任何一处分叉
+          都会表现为「导航说 3 条未读，列表里只标了 2 行」。
+
+          用 COUNT 子查询而不是在 Java 里数：Service 拿到的只有列表 VO，
+          而消息明细是另一个接口；在这里算完，前端拿到列表就能直接渲染角标。
+
+          不做 sender = 'AI' 的排除：本查询已由外层限定 consult_type = 'DOCTOR'，
+          而 AI 消息只存在于 consult_type = 'AI' 的会话里，天然进不来。
+          （在子查询里再写一遍既无收益，又会在将来"允许多渠道混聊"时变成错的。）
+        -->
+        (SELECT COUNT(*)
+         FROM consult_message m
+         WHERE m.session_id = cs.id
+           AND m.sender &lt;&gt; #{mySender}
+           AND m.read_at IS NULL)                                    AS unreadCount
+    </sql>
+
+    <sql id="sessionJoins">
+        FROM consult_session cs
+                 LEFT JOIN sys_user ru ON ru.id = cs.resident_id
+                 LEFT JOIN sys_user du ON du.id = cs.doctor_id
+                 LEFT JOIN doctor d ON d.id = cs.doctor_id
+    </sql>
+
+    <select id="selectSessionList" resultType="com.cmh.psycare.dto.ChatSessionVO">
+        SELECT
+        <include refid="sessionColumns"/>
+        <include refid="sessionJoins"/>
+        WHERE cs.consult_type = 'DOCTOR'
+        <choose>
+            <when test="'DOCTOR'.equals(role)">
+                AND cs.doctor_id = #{userId}
+            </when>
+            <otherwise>
+                AND cs.resident_id = #{userId}
+            </otherwise>
+        </choose>
+        <!--
+          【只列「有过消息」的会话 —— 收件箱不该出现空条目】
+          「有过消息」的判定：该会话下至少存在 1 条 consult_message 行。
+          不看发送方向，也不要求双向（理由见 ChatService 类注释）。
+
+          没有这条过滤，openSession 建出来的空会话会全部堆进列表：
+          点开「聊天」又关掉、从「用户信息」页点了聊天没发消息，
+          都会留下一条预览为「（还没有消息）」的僵尸行，把真正的来信挤下去。
+
+          用 EXISTS 半连接而不是 JOIN：JOIN 会被同一会话的多条消息复制成多行，
+          还得再 DISTINCT 去重；EXISTS 只判存在性，不改变结果集行数。
+          consult_message(session_id) 上有 idx_session，这里是索引命中。
+        -->
+        AND EXISTS (SELECT 1
+                    FROM consult_message m
+                    WHERE m.session_id = cs.id)
+        <!-- 过滤后 lastMessageAt 必有值；保留 COALESCE 是为了脏数据退化而不是报错 -->
+        ORDER BY COALESCE(lastMessageAt, cs.created_at) DESC, cs.id DESC
+    </select>
+
+    <select id="selectSessionDetail" resultType="com.cmh.psycare.dto.ChatSessionVO">
+        SELECT
+        <include refid="sessionColumns"/>
+        <include refid="sessionJoins"/>
+        WHERE cs.id = #{sessionId}
+    </select>
+
+    <!--
+      居民端「我的消息」的列表：**和我有过消息往来**的医生 + 会话状态。
+
+      三个要点：
+
+      1) 【四重过滤，缺一不可】
+         前三重是账号健康度：u.is_deleted = 0（账号未注销）· u.status = 1（账号未禁用）·
+         d.audit_status = 'APPROVED'（资质已通过）。
+         少任何一条，未审核或被禁用的医生都会出现在居民的可选列表里 ——
+         而 unapproved 的医生连登录都进不来，居民却能看到他，属于双向不一致。
+         第四重是 cs.id IS NOT NULL（下方第 2 点），即「有过消息」。
+
+      2) 【只列「有过消息」的医生 —— 与医生端 selectSessionList 同一口径】
+         判定条件是**同一句话**：该医生名下存在与我的、至少含 1 条消息的会话。
+         落到 SQL 上要分两处写，缺任何一处过滤都不完整：
+           · 子查询里的 EXISTS —— 决定「取哪一条会话」，必须限定在**有消息**的
+             会话里取 MAX(id)；否则最新那条恰好是空会话时，会挑中它，
+             而更早那条有消息的会话反而被跳过。
+           · 外层的 cs.id IS NOT NULL —— 决定「这行留不留」。没有任何一条
+             有消息的会话时子查询返回 NULL，关联不上，这行就该消失。
+         保留 LEFT JOIN（而非改成 INNER JOIN）+ 外层显式条件，是为了让
+         「本来允许为空、是我们主动排除掉」这件事在 SQL 里可见：
+         若日后要恢复「可选未聊过的医生」，删掉 cs.id IS NOT NULL 一行即可，
+         不必再重写连接方式。
+
+      3) 【排序 = 最近聊过的排前面，其次口碑好的】
+         原本还有一条 cs.id IS NULL 排序键（把没聊过的排到后面），
+         过滤后它恒为 false，已删。对齐「短信收件箱」的心智：
+         常联系的人在最上面，同一时间粒度的按评分兜底。
+
+      另外：用 MAX(cs2.id) 而不是直接关联，是为了防止历史脏数据里
+      同一对医患存在多条 OPEN 会话时把结果行数撑大。
+      consult_type 必须限定 'DOCTOR'，否则会关联上 AI 问诊会话
+      （AI 会话 doctor_id 为 NULL，虽然也匹配不上，但显式写出来更稳）。
+    -->
+    <select id="selectDoctorList" resultType="com.cmh.psycare.dto.ChatPeerVO">
+        SELECT du.id                                            AS doctorId,
+               du.real_name                                     AS doctorName,
+               du.username                                      AS doctorUsername,
+               d.department                                     AS department,
+               d.title                                          AS title,
+               d.expertise_tags                                 AS expertiseTags,
+               d.rating                                         AS rating,
+               d.current_load                                   AS currentLoad,
+               cs.id                                            AS sessionId,
+               (SELECT m.content
+                FROM consult_message m
+                WHERE m.session_id = cs.id
+                ORDER BY m.id DESC
+                LIMIT 1)                                        AS lastMessage,
+               (SELECT m.created_at
+                FROM consult_message m
+                WHERE m.session_id = cs.id
+                ORDER BY m.id DESC
+                LIMIT 1)                                        AS lastMessageAt,
+               (SELECT COUNT(*)
+                FROM consult_message m
+                WHERE m.session_id = cs.id)                     AS messageCount,
+               <!--
+                 未读条数：该医生发来、居民还没读的条数。
+                 判定式与医生端 sessionColumns 里那一处**必须同一句话**，
+                 只有「谁是对端」不同（居民视角恒为 DOCTOR）。
+                 cs.id 为 NULL（没聊过）时子查询自然得 0 —— 未读恒为 0，
+                 不需要额外的 CASE 兜底。
+               -->
+               (SELECT COUNT(*)
+                FROM consult_message m
+                WHERE m.session_id = cs.id
+                  AND m.sender = 'DOCTOR'
+                  AND m.read_at IS NULL)                        AS unreadCount
+        FROM sys_user du
+                 JOIN doctor d ON d.id = du.id
+                 LEFT JOIN consult_session cs
+                           ON cs.id = (SELECT MAX(cs2.id)
+                                       FROM consult_session cs2
+                                       WHERE cs2.resident_id = #{residentId}
+                                         AND cs2.doctor_id = du.id
+                                         AND cs2.consult_type = 'DOCTOR'
+                                         AND cs2.status = 'OPEN'
+                                         AND EXISTS (SELECT 1
+                                                     FROM consult_message m
+                                                     WHERE m.session_id = cs2.id))
+        WHERE du.is_deleted = 0
+          AND du.role = 'DOCTOR'
+          AND du.status = 1
+          AND d.audit_status = 'APPROVED'
+          <!-- 「有过消息往来」的医生才留下：聊过就永远留下，没聊过的不占位 -->
+          AND cs.id IS NOT NULL
+        ORDER BY lastMessageAt DESC, d.rating DESC, du.id
+    </select>
+
+    <!--
+      「医生咨询」页的医生目录：全部已审核医生，「有过消息」不再作为过滤条件。
+      与 selectDoctorList 的差别只有最后两处：WHERE 少了 cs.id IS NOT NULL，
+      ORDER BY 多了一层「已有对话者优先」。
+    -->
+    <select id="selectDoctorCatalog" resultType="com.cmh.psycare.dto.ChatPeerVO">
+        SELECT du.id                                            AS doctorId,
+               du.real_name                                     AS doctorName,
+               du.username                                      AS doctorUsername,
+               d.department                                     AS department,
+               d.title                                          AS title,
+               d.expertise_tags                                 AS expertiseTags,
+               d.rating                                         AS rating,
+               d.current_load                                   AS currentLoad,
+               cs.id                                            AS sessionId,
+               (SELECT m.content
+                FROM consult_message m
+                WHERE m.session_id = cs.id
+                ORDER BY m.id DESC
+                LIMIT 1)                                        AS lastMessage,
+               (SELECT m.created_at
+                FROM consult_message m
+                WHERE m.session_id = cs.id
+                ORDER BY m.id DESC
+                LIMIT 1)                                        AS lastMessageAt,
+               (SELECT COUNT(*)
+                FROM consult_message m
+                WHERE m.session_id = cs.id)                     AS messageCount,
+               <!-- 未读条数，判定式与 selectDoctorList 完全一致（见那处注释） -->
+               (SELECT COUNT(*)
+                FROM consult_message m
+                WHERE m.session_id = cs.id
+                  AND m.sender = 'DOCTOR'
+                  AND m.read_at IS NULL)                        AS unreadCount
+        FROM sys_user du
+                 JOIN doctor d ON d.id = du.id
+                 LEFT JOIN consult_session cs
+                           ON cs.id = (SELECT MAX(cs2.id)
+                                       FROM consult_session cs2
+                                       WHERE cs2.resident_id = #{residentId}
+                                         AND cs2.doctor_id = du.id
+                                         AND cs2.consult_type = 'DOCTOR'
+                                         AND cs2.status = 'OPEN'
+                                         AND EXISTS (SELECT 1
+                                                     FROM consult_message m
+                                                     WHERE m.session_id = cs2.id))
+        WHERE du.is_deleted = 0
+          AND du.role = 'DOCTOR'
+          AND du.status = 1
+          AND d.audit_status = 'APPROVED'
+        ORDER BY CASE WHEN cs.id IS NULL THEN 1 ELSE 0 END,
+                 lastMessageAt DESC,
+                 d.rating DESC,
+                 du.id
+    </select>
+
+    <!--
+      未读汇总：两端导航红点**唯一**的数字来源。
+
+      为什么单独一个查询而不是把两边的列表拉下来前端自己数：
+      医生端列表来自 consult_session、居民端来自 sys_user×doctor，
+      两个接口的结果形状不同。让前端各数一遍，就是同一句业务规则写在两个地方 ——
+      而「哪些算未读」这件事不该有两份实现。放这里，两端读同一个字段。
+
+      口径与列表查询严格对齐（consult_type / status / sender / read_at 四项全同），
+      其中 status = 'OPEN' 是刻意加的：
+        居民端 selectDoctorList 只关联 OPEN 会话（见那处注释），
+        若这里把 CLOSED 会话的未读也数进去，就会出现「红点亮着但列表里
+        找不到这一行」—— 一个点不进去的红点比没有红点更糟。
+
+      COUNT(*) 与 COUNT(DISTINCT cs.id) 的分工：
+        前者是 JOIN 后的行数 = 未读**消息**条数；
+        后者是去重后的会话数 = 有几个对话等着我。角标显示后者。
+
+      用 INNER JOIN：session_id 指向不存在的会话属于脏数据，无法归属，
+      不该计入。（COUNT 聚合无 GROUP BY，无行时也保证返回一行 0/0，不会返 null。）
+    -->
+    <select id="selectUnreadSummary" resultType="com.cmh.psycare.dto.ChatUnreadVO">
+        SELECT COUNT(DISTINCT cs.id) AS sessionCount,
+               COUNT(*)              AS messageCount
+        FROM consult_message m
+                 JOIN consult_session cs ON cs.id = m.session_id
+        WHERE cs.consult_type = 'DOCTOR'
+          AND cs.status = 'OPEN'
+          AND m.read_at IS NULL
+          AND m.sender &lt;&gt; #{mySender}
+        <choose>
+            <when test="'DOCTOR'.equals(role)">
+                AND cs.doctor_id = #{userId}
+            </when>
+            <otherwise>
+                AND cs.resident_id = #{userId}
+            </otherwise>
+        </choose>
+    </select>
+
+</mapper>

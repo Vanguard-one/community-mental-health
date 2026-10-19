@@ -1,0 +1,43 @@
+{"query": "PHQ-9 是用来干什么的？谁适合做？", "expect_sections": ["1.1 量表用途与适用人群"], "expect_keywords": ["PHQ-9", "筛查", "两周"], "note": "量表定位与回顾期"}
+{"query": "PHQ-9 的四个选项怎么选才算准？", "expect_sections": ["1.2 题目形式与四档作答"], "expect_keywords": ["完全没有", "有几天", "一半以上时间"], "note": "作答方式"}
+{"query": "PHQ-9 第 3 题问睡眠，具体问哪些情况？", "expect_sections": ["1.4 第 3 题"], "expect_keywords": ["入睡困难", "早醒", "睡眠"], "note": "条目解读"}
+{"query": "量表第 9 题为什么不能只看总分？", "expect_sections": ["2.3 第 9 题"], "expect_keywords": ["第 9 题", "伤害自己", "单独"], "note": "单条高危"}
+{"query": "焦虑量表 GAD-7 一共几个题目？测什么？", "expect_sections": ["1.1 用途与七个条目"], "expect_keywords": ["GAD-7", "七", "担忧"], "note": "量表定位"}
+{"query": "怎么区分正常的担心和需要关注的焦虑？", "expect_sections": ["1.2 焦虑与"], "expect_keywords": ["正常", "担心", "停下来"], "note": "鉴别要点"}
+{"query": "惊恐发作是什么感觉？会持续多久？", "expect_sections": ["2.2 惊恐发作"], "expect_keywords": ["惊恐", "心脏", "死亡"], "note": "急性焦虑"}
+{"query": "注意力总是控制不住地担心，停不下来，是什么情况？", "expect_sections": ["1.3 条目解读：担忧与控制"], "expect_keywords": ["担忧", "控制", "停不下来"], "note": "核心条目"}
+{"query": "PSS-10 测的是什么？和压力事件多少有关系吗？", "expect_sections": ["1.1 用途与十个条目"], "expect_keywords": ["PSS-10", "知觉压力", "应付"], "note": "压力量表"}
+{"query": "PSQI 睡眠质量量表为什么要分七个成分？", "expect_sections": ["2.1 测的是什么"], "expect_keywords": ["PSQI", "睡眠", "成分"], "note": "睡眠量表"}
+{"query": "填自评量表时有什么通用注意事项？", "expect_sections": ["3.1 作答时要注意什么"], "expect_keywords": ["回顾期", "跳题", "如实"], "note": "作答规范"}
+{"query": "量表结果能说明什么、不能说明什么？", "expect_sections": ["3.2 结果能说明什么"], "expect_keywords": ["诊断", "趋势", "不能"], "note": "结果边界"}
+{"query": "情绪低落多久算需要去看医生的程度？", "expect_sections": ["1.2 什么时候该求助"], "expect_keywords": ["两周", "影响", "求助"], "note": "求助门槛"}
+{"query": "身体各种不舒服但检查都说没问题，可能是什么原因？", "expect_sections": ["2.1 查不出原因的身体不适"], "expect_keywords": ["躯体化", "检查", "情绪"], "note": "躯体化"}
+{"query": "失眠为什么总是好不了、反复发作？", "expect_sections": ["3.1 失眠是怎么形成的"], "expect_keywords": ["维持因素", "条件反射", "床"], "note": "失眠机制"}
+{"query": "用喝酒来缓解情绪有什么问题？", "expect_sections": ["4.1 用喝酒来缓解情绪"], "expect_keywords": ["酒精", "反弹", "睡眠"], "note": "物质使用"}
+{"query": "哪些言行是在提示自杀风险？", "expect_sections": ["1.1 言行上的警示信号"], "expect_keywords": ["信号", "告别", "送人"], "note": "风险识别"}
+{"query": "直接问对方是不是想自杀会不会有风险？", "expect_sections": ["1.3 直接询问"], "expect_keywords": ["询问", "诱发", "看见"], "note": "询问安全性"}
+{"query": "发现有人处于高风险状态，第一时间应该做什么？", "expect_sections": ["2.1 立即要做的几件事"], "expect_keywords": ["不要让他独处", "移除", "专业"], "note": "紧急处置"}
+{"query": "全国的心理援助热线号码是多少？", "expect_sections": ["3.1 可以联系哪些渠道"], "expect_keywords": ["12356", "热线"], "note": "求助资源"}
+{"query": "发热到什么程度、持续多久需要去医院？", "expect_sections": ["1.1 发热"], "expect_keywords": ["发热", "就医", "高热"], "note": "发热指征"}
+{"query": "什么样的头痛需要立刻就医？", "expect_sections": ["1.2 头痛"], "expect_keywords": ["头痛", "突发", "就医"], "note": "头痛警示"}
+{"query": "胸闷胸痛什么情况下要马上打 120？", "expect_sections": ["1.3 胸闷胸痛"], "expect_keywords": ["120", "胸", "急诊"], "note": "胸痛警示"}
+{"query": "腹痛原因没查清之前为什么不能吃止痛药？", "expect_sections": ["1.4 腹痛与肠胃不适"], "expect_keywords": ["腹痛", "止痛药", "掩盖"], "note": "用药禁忌"}
+{"query": "心理情绪的问题应该挂哪个科？", "expect_sections": ["2.2 心理相关症状对应的科室"], "expect_keywords": ["精神科", "心理科", "心身医学"], "note": "分诊"}
+{"query": "抗抑郁药吃多久才会有效果？", "expect_sections": ["1.1 起效时间"], "expect_keywords": ["两周", "四周", "起效"], "note": "起效时间"}
+{"query": "抗抑郁药刚开始吃有哪些不舒服？", "expect_sections": ["1.3 初期可能出现的不适"], "expect_keywords": ["恶心", "头痛", "适应"], "note": "初期反应"}
+{"query": "为什么抗抑郁药不能自己突然停？", "expect_sections": ["2.2 停药反应"], "expect_keywords": ["停药反应", "骤停", "减量"], "note": "停药安全"}
+{"query": "漏服了一次药该怎么办？", "expect_sections": ["2.1 规律服药与漏服处理"], "expect_keywords": ["漏服", "补服", "剂量"], "note": "服药规范"}
+{"query": "苯二氮䓬类的抗焦虑药要注意什么？", "expect_sections": ["3.1 抗焦虑药与助眠药"], "expect_keywords": ["依赖", "酒精", "短期"], "note": "药物风险"}
+{"query": "第一次去看精神科要准备些什么？", "expect_sections": ["3.1 首诊要带什么"], "expect_keywords": ["病历", "用药", "问题"], "note": "就诊准备"}
+{"query": "异地看病需要提前办什么手续才能报销？", "expect_sections": ["2.2 异地就医与备案"], "expect_keywords": ["备案", "异地", "结算"], "note": "医保流程"}
+{"query": "复诊的时候应该向医生反馈哪些信息？", "expect_sections": ["3.1 复诊要做什么准备"], "expect_keywords": ["复诊", "变化", "记录"], "note": "复诊准备"}
+{"query": "什么情况下需要转诊到上级医院？", "expect_sections": ["4.1 什么是转介"], "expect_keywords": ["转介", "上级", "专科"], "note": "转介流程"}
+{"query": "青少年的情绪波动怎么区分是正常还是有困扰？", "expect_sections": ["1.1 这个阶段的特殊性"], "expect_keywords": ["青少年", "自我认同", "同伴"], "note": "人群特点"}
+{"query": "老年人抑郁为什么常常表现为身体不舒服？", "expect_sections": ["2.1 老年期常见的心理挑战"], "expect_keywords": ["老年", "躯体化", "丧失"], "note": "老年特点"}
+{"query": "产后情绪低落是正常的吗？要不要处理？", "expect_sections": ["3.1 常见困扰与原因"], "expect_keywords": ["产后", "激素", "两周"], "note": "孕产期"}
+{"query": "慢性病患者为什么也要关注情绪？", "expect_sections": ["4.1 身心同治的必要性"], "expect_keywords": ["慢病", "依从性", "双向"], "note": "慢病共病"}
+{"query": "为什么固定起床时间比固定入睡时间更重要？", "expect_sections": ["1.1 作息与光照的调节"], "expect_keywords": ["起床时间", "生物钟", "光照"], "note": "作息调节"}
+{"query": "运动为什么能改善情绪？", "expect_sections": ["2.1 为什么运动能改善情绪"], "expect_keywords": ["运动", "神经递质", "反刍"], "note": "运动机制"}
+{"query": "情绪性进食和真的饿了怎么区分？", "expect_sections": ["3.2 情绪性进食"], "expect_keywords": ["情绪性进食", "突然", "自责"], "note": "进食行为"}
+{"query": "缓息呼吸具体怎么做？", "expect_sections": ["4.1 呼吸放松法"], "expect_keywords": ["吸气", "呼气", "副交感"], "note": "放松技术"}
+{"query": "社会支持为什么对心理健康重要？", "expect_sections": ["5.1 社会支持为什么重要"], "expect_keywords": ["社会支持", "缓冲", "孤立"], "note": "社会支持"}

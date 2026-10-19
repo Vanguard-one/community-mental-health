@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.cmh.psycare.mapper.AccountMapper">
+
+    <!--
+      账号列表读模型。
+      两个关键点：
+      1) 【显式写 u.is_deleted = 0】。自定义 XML 不走 MyBatis-Plus 的 @TableLogic，
+         漏了它已删除账号会照样出现在列表里 —— 软删改造最常见的漏网点。
+      2) 【绝不 SELECT u.password】。这是白名单列清单，不是实体直出。
+    -->
+    <select id="selectAccountPage" resultType="com.cmh.psycare.dto.AccountVO">
+        SELECT u.id             AS id,
+               u.role           AS userType,
+               u.username       AS username,
+               u.real_name      AS realName,
+               u.phone          AS phone,
+               u.status         AS status,
+               u.created_at     AS createdAt,
+               d.audit_status   AS auditStatus,
+               d.audit_remark   AS auditRemark,
+               d.department     AS department,
+               d.title          AS title,
+               d.expertise_tags AS expertiseTags,
+               d.license_no     AS licenseNo,
+               a.admin_level    AS adminLevel,
+               r.gender         AS gender,
+               r.birth_year     AS birthYear
+        FROM sys_user u
+                 LEFT JOIN `user` r ON r.id = u.id
+                 LEFT JOIN doctor d ON d.id = u.id
+                 LEFT JOIN admin a ON a.id = u.id
+        <where>
+            u.is_deleted = 0
+            <if test="userType != null and userType != ''">
+                AND u.role = #{userType}
+            </if>
+            <if test="status != null">
+                AND u.status = #{status}
+            </if>
+            <if test="auditStatus != null and auditStatus != ''">
+                AND d.audit_status = #{auditStatus}
+            </if>
+            <if test="keyword != null and keyword != ''">
+                AND (u.username LIKE CONCAT('%', #{keyword}, '%')
+                     OR u.real_name LIKE CONCAT('%', #{keyword}, '%')
+                     OR u.phone LIKE CONCAT('%', #{keyword}, '%'))
+            </if>
+        </where>
+        ORDER BY u.id DESC
+    </select>
+
+    <!-- 待审核医生数：仅统计未删除 + 账号正常 + PENDING 的医生 -->
+    <select id="selectPendingAuditCount" resultType="java.lang.Integer">
+        SELECT COUNT(*)
+        FROM doctor d
+                 JOIN sys_user u ON u.id = d.id
+        WHERE d.audit_status = 'PENDING'
+          AND u.is_deleted = 0
+    </select>
+
+</mapper>

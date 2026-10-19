@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.cmh.psycare.mapper.ConsultSessionMapper">
+
+    <!--
+      历史 AI 会话列表。四个要点：
+
+      1) 【必须限定 consult_type = 'AI'】
+         同一张表还装着医生图文会话（consult_type = 'DOCTOR'）。不加这个条件，
+         居民的「AI 问诊」历史里会混进和医生的对话 —— 而两类内容在界面上完全不同。
+
+      2) 【消息数与最后一条用子查询，不用 JOIN】
+         JOIN 后再 GROUP BY 会让「取最后一条的内容」需要窗口函数或两次聚合，
+         而居民个人的会话量很小（列表上限 30 条），三个标量子查询更直白且不会写错。
+         走的是 consult_message 上的 idx_session 索引。
+
+      3) 【排序用 cs.id 而不是 cs.created_at】
+         同一秒创建的两个会话时间戳可能完全相同，排序结果不稳定会导致分页时
+         同一条会话重复出现或漏掉。id 是自增的，天然唯一且与创建顺序一致。
+
+      4) 【不写 is_deleted = 0】
+         硬约定要求自定义 SQL 手写逻辑删除过滤 —— 但这两张表（consult_session /
+         consult_message）**本来就没有 is_deleted 列**（已核实真库表结构），
+         所以这里不需要，也不该写：写了会直接报 Unknown column。
+         会话记录不做软删，历史永久保留。
+    -->
+    <select id="selectAiSessionList" resultType="com.cmh.psycare.dto.AiSessionVO">
+        SELECT cs.id            AS sessionId,
+               cs.status        AS status,
+               cs.assessment_id AS assessmentId,
+               cs.created_at    AS createdAt,
+               (SELECT COUNT(*) FROM consult_message m
+                 WHERE m.session_id = cs.id) AS messageCount,
+               (SELECT m.content FROM consult_message m
+                 WHERE m.session_id = cs.id ORDER BY m.id DESC LIMIT 1) AS lastMessage,
+               (SELECT m.created_at FROM consult_message m
+                 WHERE m.session_id = cs.id ORDER BY m.id DESC LIMIT 1) AS lastAt
+          FROM consult_session cs
+         WHERE cs.resident_id = #{residentId}
+           AND cs.consult_type = 'AI'
+         ORDER BY cs.id DESC
+         LIMIT #{limit}
+    </select>
+
+</mapper>

@@ -1,0 +1,68 @@
+# PsyCare · Milvus standalone（AI 模块 Phase 3 的「索引层」）
+#
+# ⚠️ 本机（开发环境）实际不用这个文件 —— 用的是官方脚本：
+#      E:\Milvus\standalone.bat          （start / stop / delete / upgrade）
+#    该脚本起一个**单容器**：内嵌 etcd（ETCD_USE_EMBED=true）+ 本地文件系统存储
+#    （COMMON_STORAGETYPE=local），**没有独立的 etcd / MinIO 容器**。
+#    数据落在 E:\Milvus\volumes\milvus。
+#
+#    本文件是**与之一等价的可移植版本**（同样的 env、同样的卷、同样的端口），
+#    供换机 / CI / 需要 compose 管理的场合使用。
+#    本机已有实例在跑，**不要在本机 up**（19530 会被占用而启动失败）。
+#
+# 版本事实（2026-08-31 部署，2026-10-08 核实）
+# ------------------------------------------------
+#   服务端 : milvusdb/milvus:v3.0.0   （2026-07-29 发布的正式版）
+#   Java   : io.milvus:milvus-sdk-java:3.0.5   ← 官方版本对照表 Milvus 3.0.0 一行
+#   Python : pymilvus 3.0.x（本项目 Python 侧一律走 REST，不装 SDK）
+#
+#   ⚠️ 3.0 相对 2.6 的几条**会咬人**的差异（已实测）：
+#     · 向量字段**可以为 NULL 了**（2.6.2~2.6.17 不支持）。
+#       → 「父块不进 Milvus」不再是被迫的，但仍是本项目的选择（父块不参与检索，不进更省）。
+#     · Storage V3（Loon）**默认关闭**。**不要打开** —— 一旦启用会改变序列化格式，
+#       从此无法回滚到 2.6（官方明确说明这是一扇单向门）。
+#     · 新索引算法需**手动**提版本号才生效（dataCoord.targetVecIndexVersion=10 等）。
+#       默认不启用 = 默认行为与 2.6 接近，对我们是好事，别去动。
+#     · REST v2 路径与参数**完全向后兼容**：`milvus_probe.py` 的四断言在 3.0.0 上全绿。
+#
+# 与旧版的区别（本文件上一版写错了）
+# ------------------------------------------------
+#   上一版写的是 v2.6.19 + 三容器（etcd + MinIO + Milvus），与真实环境不符。
+#   已于 2026-10-08 按 `docker inspect milvus-standalone` 的真实参数改正。
+#
+#   启动：docker compose -f deploy/milvus/docker-compose.yml up -d
+#   状态：docker compose -f deploy/milvus/docker-compose.yml ps
+#   探活：curl -s http://127.0.0.1:9091/healthz
+#   停止：docker compose -f deploy/milvus/docker-compose.yml down
+
+name: psycare-milvus
+
+services:
+  standalone:
+    container_name: milvus-standalone
+    image: milvusdb/milvus:v3.0.0
+    command: ["milvus", "run", "standalone"]
+    security_opt:
+      - seccomp:unconfined
+    environment:
+      # 内嵌 etcd：不需要独立的 etcd 容器（这与官方三容器 compose 的关键差异）
+      ETCD_USE_EMBED: "true"
+      ETCD_DATA_DIR: /var/lib/milvus/etcd
+      ETCD_CONFIG_PATH: /milvus/configs/embedEtcd.yaml
+      # 本地文件系统存储：不需要 MinIO
+      COMMON_STORAGETYPE: "local"
+      DEPLOY_MODE: STANDALONE
+    volumes:
+      - ./volumes/milvus:/var/lib/milvus
+      - ./embedEtcd.yaml:/milvus/configs/embedEtcd.yaml
+      - ./user.yaml:/milvus/configs/user.yaml
+    ports:
+      - "19530:19530"   # 客户端入口（REST v2 / gRPC 共用）
+      - "9091:9091"     # healthz + metrics + WebUI
+      - "2379:2379"     # 内嵌 etcd
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 30s
+      start_period: 90s
+      timeout: 20s
+      retries: 3

@@ -1,0 +1,55 @@
+/**
+ * 字体声明
+ * 依据《开发文档.md》3.4
+ *
+ * 策略：
+ *  - JetBrains Mono（等宽数字，体积小 ~90KB/字重）→ 自托管，随仓库分发
+ *  - 思源宋体 / 思源黑体（中文包单字重 10MB+）→ 不自托管，走回退栈；
+ *    需要像素级还原设计稿时，按下文模板放入 public/fonts/ 并取消注释。
+ */
+
+/* ===================== JetBrains Mono（自托管） ===================== */
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('/fonts/JetBrainsMono-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('/fonts/JetBrainsMono-Medium.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ===================== 思源宋体 / 思源黑体（可选自托管模板） =====================
+ *
+ * 1. 下载 woff2 子集（推荐只裁常用汉字，或用 cn-font-split 做分包）
+ * 2. 放到 psycare-web/public/fonts/
+ * 3. 取消下面的注释
+ *
+@font-face {
+  font-family: 'Source Han Sans CN';
+  src: url('/fonts/SourceHanSansCN-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Source Han Sans CN';
+  src: url('/fonts/SourceHanSansCN-Medium.woff2') format('woff2');
+  font-weight: 500;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Source Han Serif CN';
+  src: url('/fonts/SourceHanSerifCN-SemiBold.woff2') format('woff2');
+  font-weight: 600;
+  font-display: swap;
+}
+ *
+ * ============================================================================ */

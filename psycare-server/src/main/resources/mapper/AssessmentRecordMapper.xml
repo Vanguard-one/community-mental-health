@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.cmh.psycare.mapper.AssessmentRecordMapper">
+
+    <!--
+      扁平结果：一行 = 一道题。
+      注意一：这里刻意【全部用 <result> 而不是 <id>】。
+        若把 assessmentId 映射成 <id>，MyBatis 会把同一 assessmentId 的多行
+        去重合并成一个对象，逐题明细就只剩最后一题 —— join 集合映射最经典的坑。
+      注意二：item_no / score 一律取 scale_item、scale_option 的值，
+        不用 assessment_answer 的同名列。实测该表 68 行里 item_no 与 score
+        **全部为 NULL**（写入侧从未赋值），直接用会导致题号全空、得分全 null。
+        assessment_answer 可信的只有 item_id 与 option_id。
+    -->
+    <resultMap id="AssessmentRowMap" type="com.cmh.psycare.dto.AssessmentRow">
+        <result property="assessmentId" column="assessment_id"/>
+        <result property="totalScore"   column="total_score"/>
+        <result property="rawLevel"     column="raw_level"/>
+        <result property="riskLevel"    column="risk_level"/>
+        <result property="crisisFlag"   column="crisis_flag"/>
+        <result property="completedAt"  column="completed_at"/>
+        <result property="scaleId"      column="scale_id"/>
+        <result property="scaleCode"    column="scale_code"/>
+        <result property="scaleName"    column="scale_name"/>
+        <result property="itemNo"       column="item_no"/>
+        <result property="question"     column="question"/>
+        <result property="itemCrisis"   column="item_crisis"/>
+        <result property="answer"       column="answer"/>
+        <result property="score"        column="score"/>
+        <result property="optionId"     column="option_id"/>
+    </resultMap>
+
+    <!--
+      逐题明细。
+      assessment_answer 只存 option_id，题干与选项文案必须 join
+      scale_item / scale_option，否则前端拿到一串 id。
+      全程 LEFT JOIN：明细缺失时（早期数据只写了 assessment.answer_json）
+      仍会返回一行卷头，不会让调用方误判「测评不存在」。
+    -->
+    <select id="selectAnswerRows" resultMap="AssessmentRowMap">
+        SELECT a.id                 AS assessment_id,
+               a.total_score        AS total_score,
+               a.raw_level          AS raw_level,
+               a.risk_level         AS risk_level,
+               a.crisis_flag        AS crisis_flag,
+               a.created_at         AS completed_at,
+               s.id                 AS scale_id,
+               s.code               AS scale_code,
+               s.name               AS scale_name,
+               si.item_no           AS item_no,
+               si.content           AS question,
+               si.crisis_flag       AS item_crisis,
+               so.content           AS answer,
+               COALESCE(aa.score, so.score) AS score,
+               aa.option_id         AS option_id
+        FROM assessment a
+                 JOIN scale s ON s.id = a.scale_id
+                 LEFT JOIN assessment_answer aa ON aa.assessment_id = a.id
+                 LEFT JOIN scale_item si ON si.id = aa.item_id
+                 LEFT JOIN scale_option so ON so.id = aa.option_id
+        WHERE a.id = #{assessmentId}
+        ORDER BY si.item_no
+    </select>
+
+    <!-- 历史测评摘要：卷名需 join scale -->
+    <select id="selectHistory" resultType="com.cmh.psycare.dto.AssessmentHistoryVO">
+        SELECT a.id          AS id,
+               s.code        AS scaleCode,
+               s.name        AS scaleName,
+               a.total_score AS totalScore,
+               a.risk_level  AS riskLevel,
+               a.created_at  AS completedAt
+        FROM assessment a
+                 JOIN scale s ON s.id = a.scale_id
+        WHERE a.resident_id = #{residentId}
+        ORDER BY a.created_at DESC, a.id DESC
+    </select>
+
+</mapper>
