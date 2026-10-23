@@ -109,7 +109,7 @@ public class OpenAiCompatClient implements AiChatClient {
      * 推理在这里买不到任何东西，而它是一次额外的、要花钱的请求。
      */
     @Override
-    public Mono<String> complete(List<ChatMessage> messages) {
+    public Mono<LlmCompletion> complete(List<ChatMessage> messages) {
         return webClient.post()
                 .uri(props.getPath())
                 .accept(MediaType.APPLICATION_JSON)
@@ -117,7 +117,7 @@ public class OpenAiCompatClient implements AiChatClient {
                 .retrieve()
                 .bodyToMono(String.class)
                 .timeout(Duration.ofSeconds(props.getTimeoutSeconds()))
-                .map(this::extractContent)
+                .map(this::extractCompletion)
                 .onErrorMap(errorMapper::map);
     }
 
@@ -182,19 +182,26 @@ public class OpenAiCompatClient implements AiChatClient {
     }
 
     /**
-     * 取非流式响应里的正文：{@code choices[0].message.content}。
+     * 解析非流式响应：{@code choices[0].message.content} + {@code usage}。
      *
-     * <p>取不到返回空串而不是抛错 —— 调用方（摘要压缩）对空结果的处理是
-     * 「本轮不写摘要」，与「重试一次仍失败」的结果相同，少一层异常路径。
+     * <p>正文取不到返回空串而不是抛错 —— 调用方（摘要 / 追问建议）对空结果的处理是
+     * 「本次不产出」，与「重试一次仍失败」的结果相同，少一层异常路径。
+     *
+     * <p>{@code usage} 是这段代码存在的理由：旧实现只看正文，
+     * 把 {@code usage} 直接丢掉，于是后台调用的 token 永远进不了 {@code ai_usage_log}。
+     * 上游没回 usage 时给 {@link LlmUsage#EMPTY}，调用方不必判空。
      */
-    private String extractContent(String body) {
+    private LlmCompletion extractCompletion(String body) {
         try {
             JsonNode root = objectMapper.readTree(body == null ? "{}" : body);
             JsonNode content = root.path("choices").path(0).path("message").path("content");
-            return content.isTextual() ? content.asText() : "";
+            String text = content.isTextual() ? content.asText() : "";
+            JsonNode usageNode = root.path("usage");
+            LlmUsage usage = usageNode.isObject() ? LlmUsage.from(usageNode) : LlmUsage.EMPTY;
+            return new LlmCompletion(text, usage == null ? LlmUsage.EMPTY : usage);
         } catch (Exception e) {
             log.warn("[LLM] 非流式响应解析失败：{}", e.getMessage());
-            return "";
+            return LlmCompletion.of("");
         }
     }
 

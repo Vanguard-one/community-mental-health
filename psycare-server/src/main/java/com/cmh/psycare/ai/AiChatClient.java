@@ -60,8 +60,12 @@ public interface AiChatClient {
      * <p><b>本方法固定以「非思考模式」调用</b>：摘要是对已有对话的压缩复述，
      * 不需要推理，而它是要花时间也要花钱的额外请求。这与上面一条一脉相承 ——
      * 「没人等的调用」就该用最快的方式跑完。
+     *
+     * <p><b>返回值带上 {@link LlmUsage}</b>：这类后台调用同样计费，
+     * 不给用量就无法回答「一轮对话之外还花了多少」。调用方负责把它写进
+     * {@code ai_usage_log}（{@code kind} 区分 CHAT / SUMMARY / FOLLOWUP）。
      */
-    Mono<String> complete(List<ChatMessage> messages);
+    Mono<LlmCompletion> complete(List<ChatMessage> messages);
 
     /**
      * 连通性与配置探活（不应产生 token 费用）。

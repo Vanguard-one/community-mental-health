@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.cmh.psycare.ai.AiChatClient;
 import com.cmh.psycare.ai.ChatMessage;
 import com.cmh.psycare.ai.ContextAssembler;
+import com.cmh.psycare.ai.FollowupSuggester;
 import com.cmh.psycare.ai.InterviewStage;
 import com.cmh.psycare.ai.LlmChunk;
 import com.cmh.psycare.ai.LlmErrorCode;
@@ -173,6 +174,16 @@ public class AiConsultService {
      * 「没有资料」这件事的载体就是「事件不出现」，前端据此什么也不渲染。
      */
     private static final String EV_CITATIONS = "citations";
+    /**
+     * 追问建议（2026-10-22）。
+     *
+     * <p>⚠️ <b>它是唯一一个排在 {@code done} 之后的事件</b>。
+     * 契约里 {@code done} 原先定义为「末尾」，这里必须同步理解为
+     * 「正文结束」—— 因为它后面可能还有这一段。原因见
+     * {@link #followupEvents} 的注释：生成要额外调一次模型（1~2s），
+     * 放在 done 之前会把「输入框解锁」一起推迟。
+     */
+    private static final String EV_FOLLOWUPS = "followups";
     private static final String EV_DONE = "done";
     private static final String DONE_PAYLOAD = "[DONE]";
 
@@ -234,6 +245,15 @@ public class AiConsultService {
      * 失败返回空列表，所以这里不需要 try/catch，也不该因为「它可能失败」而放弃接入。
      */
     private final RetrievalPipeline retrievalPipeline;
+
+    /**
+     * 追问建议生成器（2026-10-22）。
+     *
+     * <p>它在<b>流的最末尾</b>被调用一次，但整个调用包在
+     * {@code Flux.defer + onErrorResume} 里：失败就发不出事件，用户侧看到的只是
+     * 「输入框上方还是那三条静态提示」，不会有任何报错。
+     */
+    private final FollowupSuggester followupSuggester;
 
     private final ObjectMapper json = new ObjectMapper();
 
@@ -637,11 +657,23 @@ public class AiConsultService {
                     }
                 });
 
+        // 正文结束的时刻。followups 是在它之后才发起的（可能多花 1~4 秒），
+        // 若用它算 totalMs，会把「生成三条建议」的耗时算进「这轮回答用了多久」——
+        // 首帧延迟与总耗时是排查性能问题的基准指标，不能被旁路污染。
+        AtomicLong textDoneAt = new AtomicLong(0L);
+
         Flux<ServerSentEvent<String>> body = upstream
                 .concatMap(c -> Flux.fromIterable(chunkEvents(c)))
-                .concatWith(Flux.defer(() -> Flux.fromIterable(tailEvents(
-                        upstreamFinish, seen, overrideRef, truncated, errRef, sessionId, traceId,
-                        referralAccepted))))
+                .concatWith(Flux.defer(() -> {
+                    textDoneAt.set(System.currentTimeMillis());
+                    return Flux.fromIterable(tailEvents(
+                            upstreamFinish, seen, overrideRef, truncated, errRef, sessionId, traceId,
+                            referralAccepted));
+                }))
+                // ⚠️ followups 排在 done 之后。它自己吞掉所有异常（返回 empty），
+                // 所以下面那个 onErrorResume 只会接住「主链路」的错误，不会被它触发。
+                .concatWith(Flux.defer(() -> followupEvents(
+                        content, seen, overrideRef, errRef, sessionId, residentId, referralAccepted)))
                 .onErrorResume(e -> degrade(e, errRef, sessionId, traceId));
 
         return Flux.concat(Flux.fromIterable(headEvents(session, userMsgId, traceId, stage, retrieved)), body)
@@ -660,7 +692,61 @@ public class AiConsultService {
                     }
                     finishTurn(session, residentId, traceId, signal, seen, overrideRef.get(),
                             errRef.get(), truncated.get(), usageRef.get(), reasoningChars.get(),
-                            firstTokenAt.get(), startedAt);
+                            firstTokenAt.get(), startedAt, textDoneAt.get());
+                });
+    }
+
+    /**
+     * 追问建议事件（排在 {@code done} 之后）。
+     *
+     * <h3>为什么放在 done 之后，而不是 tailEvents 里</h3>
+     * <p>生成要额外调一次模型（实测非思考模式 1~2 秒），而 {@code done} 是前端解除
+     * 「发送中」状态的信号（{@code chat.ts} 的 {@code onDone} 里 {@code sending=false}）。
+     * 把它放在 done 之前，用户会看到回复已经写完、输入框却还锁着一两秒 ——
+     * 这正是「优化首帧」要消灭的那类空等。
+     *
+     * <h3>为什么可以放在 done 之后</h3>
+     * <p>前端的 SSE 解析在 {@code done} 分支只回调、<b>不 break</b>，
+     * 连接会一直读到服务端关闭。所以这一段能正常送达。
+     * 代价是契约语义从「done 是末尾」变成「done 是正文结束」——
+     * 已同步写进 {@code SSE事件协议.md}，前端 `dispatch()` 里也加了
+     * 「不许在这里 break」的注释，防止将来有人顺手改成提前退出。
+     *
+     * <h3>什么情况下不发</h3>
+     * <ul>
+     *   <li>本轮没有正文（模型空回复 / 出错）—— 用户没读到回答，给「接着问什么」没有意义；</li>
+     *   <li>走了输出侧安全护栏（{@code overrideRef} 非空）—— 危机语境下诱导继续追问是危险的；</li>
+     *   <li>本轮已下发 {@code recommend}（用户答应接受医生推荐）—— 前端马上要播分析动画并跳转，
+     *       会话随后结束，这三条建议一个字都不会被点，纯属多花一次模型调用；</li>
+     *   <li>生成超时、非 JSON、命中安全词表 —— {@link FollowupSuggester} 内部已降级为空。</li>
+     * </ul>
+     * 以上任何一种都不发事件，前端保持静态兜底三条。
+     *
+     * <p>危机短路（{@code crisisStream}）根本不经过这里，所以「用户刚表达了自伤念头」
+     * 那一轮天然不会收到建议 —— 这一点不能靠调用方的判断补，必须靠调用链上不经过这里。
+     */
+    private Flux<ServerSentEvent<String>> followupEvents(String userText, StringBuilder seen,
+                                                         AtomicReference<String> overrideRef,
+                                                         AtomicReference<LlmException> errRef,
+                                                         Long sessionId, Long residentId,
+                                                         boolean referralAccepted) {
+        String reply = overrideRef.get() != null ? overrideRef.get() : seen.toString();
+        if (reply.isBlank() || overrideRef.get() != null || errRef.get() != null || referralAccepted) {
+            return Flux.empty();
+        }
+        return followupSuggester.suggest(sessionId, residentId, userText, reply)
+                .flatMapMany(items -> {
+                    if (items.isEmpty()) {
+                        return Flux.empty();
+                    }
+                    log.info("[AI 问诊] 下发追问建议 session={} 条数={}", sessionId, items.size());
+                    return Flux.just(sse(EV_FOLLOWUPS, toJson(Map.of("items", items))));
+                })
+                // 双保险：suggester 内部已经 onErrorResume，这里再兜一层，
+                // 保证「建议生成失败」永远不会把已经发完的流变成 error。
+                .onErrorResume(e -> {
+                    log.warn("[AI 问诊] 追问建议下发失败 session={} 原因={}", sessionId, e.getMessage());
+                    return Flux.empty();
                 });
     }
 
@@ -915,12 +1001,17 @@ public class AiConsultService {
      */
     private void finishTurn(ConsultSession session, Long residentId, UUID traceId, SignalType signal,
                             StringBuilder seen, String override, LlmException err, boolean truncated,
-                            LlmUsage usage, int reasoningChars, long firstTokenAt, long startedAt) {
+                            LlmUsage usage, int reasoningChars, long firstTokenAt, long startedAt,
+                            long textDoneAt) {
         Long sessionId = session.getId();
         // 落库内容 = 用户最终看到的内容：有 override 就是改写后的正文
         String reply = override != null ? override : seen.toString();
         boolean crisisReplaced = override != null;
-        int totalMs = (int) (System.currentTimeMillis() - startedAt);
+        // 结束时刻取「正文写完」的那一刻（textDoneAt），不是「流真正关闭」的那一刻 ——
+        // 后者还包含 done 之后生成追问建议的 1~4 秒。totalMs 是核心性能指标，
+        // 让它被一个与回答本身无关的旁路任务拖着，等于给所有轮次加了一个随机的尾巴。
+        long endAt = textDoneAt > 0L ? textDoneAt : System.currentTimeMillis();
+        int totalMs = (int) (endAt - startedAt);
         Integer firstMs = firstTokenAt == 0L ? null : (int) firstTokenAt;
 
         if (reply.isEmpty()) {

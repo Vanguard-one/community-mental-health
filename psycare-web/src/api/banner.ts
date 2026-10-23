@@ -44,7 +44,10 @@ export function moveBanner(id: number, direction: 'up' | 'down'): Promise<Banner
 }
 
 /**
- * 上传 banner 图片，返回可写入 `imageUrl` 的相对路径。
+ * 上传 banner 图片，返回可直接写入 `imageUrl` 的地址。
+ *
+ * 返回值的形态由后端存储后端决定（本地相对路径 / 对象存储绝对地址），
+ * 前端不需要区分，原样存库、原样放进 `<img src>` 即可。
  *
  * 走 `postForm`（multipart），**不是** JSON —— 这是本项目第一个文件上传接口，
  * request.ts 里为此新增了 postForm。

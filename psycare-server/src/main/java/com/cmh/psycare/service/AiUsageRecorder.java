@@ -29,11 +29,18 @@ public class AiUsageRecorder {
 
     private static final int DETAIL_MAX = 500;
 
+    /** 主对话调用（SSE 流式，用户可见） */
+    public static final String KIND_CHAT = "CHAT";
+    /** 会话摘要压缩（后台、非流式） */
+    public static final String KIND_SUMMARY = "SUMMARY";
+    /** 追问建议生成（后台、非流式） */
+    public static final String KIND_FOLLOWUP = "FOLLOWUP";
+
     private final AiUsageLogMapper usageLogMapper;
     private final LlmProperties props;
 
     /**
-     * 记一次调用。
+     * 记一次调用（默认按主对话记，{@code kind=CHAT}）。
      *
      * @param usage        上游返回的用量；上游没回 usage 时传 {@link LlmUsage#EMPTY}
      * @param firstTokenMs 首帧延迟；null 表示一帧都没收到（此时 {@code errorCode} 通常非空）
@@ -41,10 +48,28 @@ public class AiUsageRecorder {
      */
     public void record(Long sessionId, Long userId, LlmUsage usage,
                        Integer firstTokenMs, int totalMs, LlmException error) {
+        record(sessionId, userId, KIND_CHAT, usage, firstTokenMs, totalMs, error);
+    }
+
+    /**
+     * 记一次调用，显式指定调用类型。
+     *
+     * <h3>为什么需要 kind</h3>
+     * <p>主对话之外还有两类<b>同样计费</b>的模型调用：会话摘要（SUMMARY）与
+     * 追问建议（FOLLOWUP）。它们原先要么不记录（摘要），要么把正文之外的
+     * usage 丢掉（{@code complete()} 的旧实现）。没有这一列，
+     * 「一轮对话的真实成本」永远只能算到主调用那一段，而实际账单里
+     * 后台调用的占比并不小。
+     *
+     * @param kind CHAT / SUMMARY / FOLLOWUP；为空时按 CHAT 记，避免脏数据
+     */
+    public void record(Long sessionId, Long userId, String kind, LlmUsage usage,
+                       Integer firstTokenMs, int totalMs, LlmException error) {
         try {
             AiUsageLog row = new AiUsageLog();
             row.setSessionId(sessionId);
             row.setUserId(userId);
+            row.setKind(kind == null || kind.isBlank() ? KIND_CHAT : kind);
             row.setModel(props.getModel());
             row.setEffort(props.getEffort());
             row.setPromptTokens(usage == null ? 0 : safe(usage.promptTokens()));

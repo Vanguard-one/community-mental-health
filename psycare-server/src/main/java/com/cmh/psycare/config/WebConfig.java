@@ -31,6 +31,14 @@ import java.nio.file.Paths;
  * 但 {@code FileSystemResource} 的路径在注册那一刻就被解析了；如果目录是后来
  * 才由上传逻辑创建的，在部分平台上（尤其是 Windows）会因规范路径变化而读不到。
  * 所以这里在注册前先 {@code createDirectories}，代价是启动时一次 IO。
+ *
+ * <h3>为什么切到对象存储（{@code psycare.upload.provider=oss}）后这里照旧不动</h3>
+ * <p>因为<b>历史数据的 URL 还在库里</b>：{@code banner.image_url} 与
+ * {@code sys_user.avatar_url} 里存着一批 {@code /api/uploads/...} 的相对路径。
+ * 切换 provider 只影响「新上传的文件去哪」，不影响「已存在的 URL 怎么被访问」。
+ * 若在 oss 模式下把这条映射删掉，那些历史图片会集体 404，而数据库看起来一切正常。
+ * <p>等到确认所有历史 URL 都已迁移到云端（一条 SQL 就能查出来），这段映射才可以退役。
+ * 在此之前它必须一直在 —— 它是灰度期的回退通道。
  */
 @Slf4j
 @Configuration

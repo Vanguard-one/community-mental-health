@@ -51,6 +51,7 @@ import {
   MessageOutlined,
   DatabaseOutlined,
   PictureOutlined,
+  FormOutlined,
 } from '@ant-design/icons-vue'
 import SideRail from '@/components/SideRail.vue'
 import type { RailItem } from '@/components/SideRail.vue'
@@ -115,6 +116,17 @@ const ALL_MENU = computed<(RailItem & { adminOnly: boolean; doctorOnly: boolean 
     path: '/admin/dashboard',
     label: '数据驾驶舱',
     icon: DashboardOutlined,
+    adminOnly: true,
+    doctorOnly: false,
+    badge: 0,
+    badgeTip: '',
+  },
+  {
+    // 评测筛查表：全站测评链路的入口（居民端能做什么测评由它决定）。
+    // 纯管理职能，只给 ADMIN —— 后端 /scale/manage/** 与删除逐个断言 ADMIN。
+    path: '/admin/scales',
+    label: '筛查表管理',
+    icon: FormOutlined,
     adminOnly: true,
     doctorOnly: false,
     badge: 0,

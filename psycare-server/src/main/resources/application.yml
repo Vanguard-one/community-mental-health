@@ -210,15 +210,44 @@ psycare:
   alert:
     trend-score-rise: 5         # 相邻两次测评总分涨幅阈值
     trend-window-days: 90       # 趋势比较窗口
-  # 文件上传（当前仅 banner 图片）。**存的是本地磁盘，不是对象存储** ——
-  # 单机部署够用，但多实例部署会失效（传在 A 机的图，请求打到 B 机就 404）。
-  # 将来横向扩容时第一件要改的就是这里，换成对象存储实现，接口形态不变。
+  # 文件上传（banner 图片 + 用户自传头像；默认头像走前端内置图标，不产生任何文件）。
+  #
+  # 【存储后端由 psycare.upload.provider 决定，取值 local / oss】
+  #   local → 本地磁盘 + /uploads/** 静态映射（默认，clone 下来即可跑）
+  #   oss   → 阿里云对象存储（多实例部署 / 多环境共享数据时必须选它）
+  #
+  # ⚠️⚠️ 这个键**刻意不写在本文件里**。
+  #   application-local.yml 是通过 spring.config.import 导入的，**优先级低于**本文件 ——
+  #   若在这里写上 provider: local，本地文件里改成 oss 会被静静盖回去，
+  #   表现为「配置改了但完全不生效，日志里还是写本地盘」，且没有任何报错。
+  #   （同一个坑在 llm.api-key 上已经踩过一次，才把密钥整行删掉的。）
+  #   所以真实取值写进 application-local.yml；Java 侧默认值兜底为 local（见 UploadProperties）。
+  #
+  #   application-local.yml 里这样写：
+  #     psycare:
+  #       upload:
+  #         provider: oss
+  #         oss:
+  #           endpoint: oss-cn-hangzhou.aliyuncs.com    # 裸域名，不带 https://
+  #           bucket: psycare-public
+  #           public-domain: https://psycare-public.oss-cn-hangzhou.aliyuncs.com
+  #           access-key-id: LTAI...
+  #           access-key-secret: ...
+  #           key-prefix:            # 单环境留空；一个 bucket 放多环境时填 prod / dev
+  #
+  # 【切到 oss 之后本地目录不能删】历史图片 URL（/api/uploads/...）还在库里，
+  #   静态映射与 provider 无关、始终生效。删掉 data/uploads 会让它们集体 404。
+  #
+  # 【切成 oss 后的核对点】① bucket 必须是「公共读」，否则前端 403（图片走的是
+  #   浏览器直连，不经过后端签名）；② bucket 地域要与 endpoint 一致；③ RAM 子账号
+  #   只授本 bucket 的 PutObject/GetObject，别给 ListObjects 和 DeleteObject。
   upload:
-    # 落盘根目录。相对路径按 JVM 工作目录解析（IDEA 里 = 项目目录）。
+    # 落盘根目录（仅 local 生效）。相对路径按 JVM 工作目录解析（IDEA 里 = 项目目录）。
     # 刻意**不放进 resources/static**：打包后那是只读的，且每次重新部署都会丢。
     dir: ./data/uploads
     # 对外 URL 前缀（**含 context-path /api**）。返回给前端的 imageUrl 带着它，
     # 前端拼 baseURL 即可访问；少写 /api 会让图片请求打到 vite dev server 而不是后端。
+    # oss 模式下本值仍然有效 —— 它是历史图片 URL 的前缀，也是头像白名单的来源之一。
     url-prefix: /api/uploads
     # 业务层大小上限（MB）。必须 <= 上面 spring.servlet.multipart.max-file-size。
     max-size-mb: 5

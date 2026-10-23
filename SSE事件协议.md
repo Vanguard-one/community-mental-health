@@ -11,6 +11,7 @@
 - **Fix-1 增量**：新增 `crisis` 事件；`override` 的触发条件由「命中危机词」收窄为「命中安全护栏」（见第四.3 节）
 - **Phase 2.5 增量**：新增 `recommend` 事件（用户同意接受医生推荐）；**阶段由 5 段压到 3 段**（`stageTotal` 由 `5` 变 `3`，`FUNCTION_IMPACT` / `RISK_SCREENING` 两个枚举值**已删除**）
 - **Phase 4 增量**：新增 `citations` 事件（RAG 引用卡片，`meta` 之后、`token` 之前）；`AiConsultService` 接入 `RetrievalPipeline`（此前检索层虽已建好但**未接线**，L6 恒走「无资料」分支）
+- **第 16 批增量（2026-10-22）**：新增 `followups` 事件（动态追问建议，**`done` 之后**）；**`done` 的语义从「末尾」改为「正文结束」**（见一、二节）；`ai_usage_log` 增加 `kind` 列区分 `CHAT` / `SUMMARY` / `FOLLOWUP` 三类调用成本（迁移脚本 `sql/v13_ai_usage_kind.sql`）
 
 ---
 
@@ -26,7 +27,16 @@
 | `recommend` | `{"sessionId":12}` | 用户**同意**接受医生推荐时（**`token` 之后、`done` 之前**） | 本轮回复结束后播「AI 正在分析」动画 → 结束会话 → 跳 `/ai-recommend?sessionId=12` |
 | `citations` | `{"items":[{"chunkId":14,"docId":1,"docTitle":"爬虫知识","section":null,"snippet":"我用Python写过基础的数据采集爬虫…","score":0.032,"denseScore":0.71,"synthetic":false}]}` | **`meta` 之后、第一个 `token` 之前**；**没有资料时整个事件不出现** | 挂到本轮 AI 气泡上，在正文下方渲染「参考资料」列表；`synthetic=true` 必须打「合成示例」角标 |
 | `error` | `{"code":"LLM_RATE_LIMITED","msg":"模型服务繁忙，请稍后重试","retryable":true}` | 任何阶段出错 | 气泡内联错误条；`retryable` 为真时显示「重试」 |
-| `done` | `[DONE]` | **末尾**，正常路径必有 | 结束 `streaming` 态 |
+| `done` | `[DONE]` | **正文结束**，正常路径必有 | 结束 `streaming` 态、**解锁输入框**（不要等流关闭，见下） |
+| `followups` | `{"items":["能给我一个今晚就能试的具体做法吗？","这种情况需要去看医生吗？"]}` | **`done` 之后**，且**本轮可能整个不出现** | 覆盖输入框上方的三条追问建议；条数 1~3，不足 3 条时视图按「有几条显示几条」渲染，多余槽位不留空块 |
+
+> [!warning] `done` 不再是「最后一个事件」（2026-10-22 起）
+> `followups` 是唯一排在 `done` **之后**的事件：它要额外调一次模型，
+> 与正文生成是两件事。把 `done` 当「流结束」的旧写法会带来一个具体后果 ——
+> 输入框要等追问建议生成完（1~2s）才解锁，用户已经读完回复却点不了发送。
+>
+> 因此前端**必须在 `done` 处解锁**，并用「消息数组长度」这类守卫丢弃晚到的旧事件（见四.4）。
+> 反过来说，`followups` 也**绝不能**提到 `done` 之前 —— 它会把解锁时刻整体推迟。
 
 > [!note] 为什么 `citations` 反而排在 `token` **前面**
 > 引用卡片是「这条回复的依据」，用户开始读正文时就该看到它；
@@ -144,7 +154,7 @@
 ## 二、顺序约束
 
 ```
-meta ──► (token | usage)* ──► (crisis)? ──► (override)? ──► (recommend)? ──► done
+meta ──► (token | usage)* ──► (crisis)? ──► (override)? ──► (recommend)? ──► done ──► (followups)?
 ```
 
 - `meta` 必须最先，且**一定**存在（含危机短路路径）。
@@ -157,7 +167,11 @@ meta ──► (token | usage)* ──► (crisis)? ──► (override)? ──
   提前下发会让动画盖住还在往外流的字。它与 `crisis(OUTPUT)` / `override` **互斥** ——
   模型刚被安全护栏拦下，此时顺势把人推进推荐流程，等于用一次正常流程掩盖一次安全事件。
 - `error` 最多一次；出现时 `token` 仍会跟一条**降级话术**（见下）。
-- `done` 一定最后。
+- `done` 是**正文结束**，不是流结束：它之后最多还有一帧 `followups`。
+- `followups` 最多一次，**只在 `done` 之后**，且以下情况**整个不出现**（而不是发空数组）：
+  正文为空、命中安全护栏被 `override`、本轮有 `error`、本轮已下发 `recommend`、
+  危机短路（服务端不诱导继续追问）、生成超时（4s）或生成的条目全被安全词表拦掉。
+  **前端必须有静态兜底。**
 
 ---
 
@@ -172,6 +186,11 @@ meta ──► (token | usage)* ──► (crisis)? ──► (override)? ──
 | **输出护栏**（模型给出了可操作的自伤指引） | `meta → token* → crisis(OUTPUT) → override(安全文案) → done` | `CRISIS` |
 | **危机短路**（用户输入命中危机词，不调模型） | `meta → crisis(INPUT) → token(危机文案) → done` | `CRISIS`（居民消息侧 `crisis_flag=1`） |
 | **转介**（用户同意接受推荐） | `meta → token* → recommend → done` | `DONE`（前端接动画 → 结束会话 → 跳推荐页） |
+
+> [!note] 表中每一条序列的 `done` 之后都可能再跟一帧 `followups`
+> 具体会不会有，只看上面那条排除清单：**正常 / 截断**两种会带；**降级 / 空回复 /
+> 输出护栏 / 危机短路 / 转介**五种不带。所以「收尾」的判定永远以 `done` 为准，
+> 不要等 `followups` —— 它可能永远不来。
 
 > [!warning] 「截断」在协议层看不出来 —— 前端拿不到它
 > `take(Duration)` 到点会以**正常完成**收尾，信号类型上没有区别，
@@ -220,10 +239,24 @@ meta ──► (token | usage)* ──► (crisis)? ──► (override)? ──
   「你怎么会有这种念头」这类共情问句共现，是高频误报源；
 - 前端**不许再维护关键词标记**（历史包袱是 `CRISIS_MARK = '12356'`）。
 
-### 4. `done` 之后的任何事件都应被忽略
+### 4. `done` 只表示正文结束：立刻解锁，之后只认 `followups`
 
-前端在收到 `done` 后即结束 `streaming` 态。理论上 `done` 是最后一个事件，
-但网络分帧可能让残余数据晚到，忽略它们是廉价且正确的防御。
+这是一条**改过的**约定。旧版写的是「`done` 之后的任何事件都应被忽略」，
+现在后半句仍然成立（除了一个例外），但前半句的做法必须反过来：
+
+| | 旧做法 | 现做法 | 为什么 |
+|---|---|---|---|
+| 解锁时机 | 等流关闭（`finally`） | **收到 `done` 立刻**解锁 | `followups` 要额外调一次模型（1~2s）。等流关闭 = 用户读完回复还点不了发送 |
+| 忽略后续 | 收到 `done` 就 `break` | **不 break**，继续读到服务端关闭 | 一 break 就把 `followups` 一起丢了 |
+| 防串轮次 | 无需处理 | 用「消息数组长度 === 本轮气泡下标」守卫 | 解锁后用户可能已经发了下一轮，旧流的事件不能写到新一轮上 |
+
+「忽略」的正确实现位置不是解析层，而是**回调里**：`onDone` / `onFollowups` 都先判
+`messages.length - 1 === myIdx`，不等就整批丢弃。这样物理上仍然收完所有帧，
+逻辑上只有属于本轮的事件生效 —— 网络分帧导致的残余帧也被同一个守卫挡住。
+
+⚠️ 反过来，`finally` 里的解锁**必须保留**，但降级成「兜底」：
+异常断开时 `done` 不会来，只有它能放掉发送按钮。留着它不会造成重复解锁，
+因为两处写的是同一个值（`sending = false`），而且都有同一套守卫。
 
 ### 5. 没有 `event:` 字段的帧按 `token` 处理（兼容旧后端）
 
@@ -281,8 +314,16 @@ curl -N --noproxy '*' -X POST http://127.0.0.1:18989/api/ai-consult/chat \
   -d "{\"sessionId\":$SID,\"content\":\"最近总是睡不着\"}"
 ```
 
-**预期肉眼可见**：`event:meta` → 若干 `event:token` → `event:usage` → `event:done`。
+**预期肉眼可见**：`event:meta` → 若干 `event:token` → `event:usage` → `event:done` →
+（隔 1~2 秒）`event:followups`。
 `meta` 的 `data` 应含 `"stage":"OPENING"`（首轮）与 `"stageStep":1`。
+
+> `done` 与 `followups` 之间那段**空白是有内容的等待**：服务端正在拿这一轮问答去生成三条建议。
+> 看到 `done` 之后 curl 还在挂着，不是卡死。
+
+**`followups` 的验证口径**：`data` 是 `{"items":[...]}`，条数 1~3、每条 ≤ 20 字。
+拿它和这一轮的正文对读 —— 三条应当分别指向正文里的不同落点（做法 / 就医 / 沟通），
+若三条都在重复「多休息、别焦虑」这类套话，说明提示词退化了，检查 `PromptAssets.FOLLOWUP_SYSTEM`。
 
 拿到 `sessionId` 后可直接验证两个读取接口（**注意用第二个终端，别复用上面的变量**）：
 

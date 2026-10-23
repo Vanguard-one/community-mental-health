@@ -84,6 +84,10 @@ CREATE TABLE IF NOT EXISTS scale (
   max_score   INT,
   description VARCHAR(255),
   status      TINYINT DEFAULT 1,
+  -- 逻辑删除：量表被 assessment.scale_id 引用，物理删除会断掉历史记录的卷名
+  -- （详见 sql/v12_scale_manage_ddl.sql 的说明）。老库缺失此列时，
+  -- ScaleSchemaInitializer 会在启动时自动补齐。
+  is_deleted  TINYINT NOT NULL DEFAULT 0 COMMENT '逻辑删除：0 未删 1 已删',
   created_at  DATETIME
 ) COMMENT '心理量表';
 

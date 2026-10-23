@@ -75,6 +75,13 @@ export interface LoginResponse {
   username: string
   realName: string
   role: string
+  /**
+   * 头像相对 URL，null/undefined = 未设置（回落角色图标）。
+   *
+   * 后加字段，登录契约的其余字段未动。随登录一起下发是刻意的 ——
+   * 侧栏头像每页都渲染，若登录后再补查一次，首屏会先闪默认图标。
+   */
+  avatarUrl?: string | null
   /** 角色差异化信息：医生 department/title/auditStatus，管理员 adminLevel */
   extra?: {
     auditStatus?: DoctorAuditStatus
@@ -82,6 +89,40 @@ export interface LoginResponse {
     title?: string
     adminLevel?: AdminLevel
   } | null
+}
+
+/**
+ * 个人资料（`GET /profile/me`）。
+ *
+ * 与 `LoginResponse` 刻意分开：这里是资料面板的契约，加字段只影响一处；
+ * LoginResponse 是登录契约，动它等于动所有端的登录链路。
+ */
+export interface ProfileVO {
+  id: number
+  username: string
+  realName: string
+  phone: string | null
+  avatarUrl: string | null
+  /** RESIDENT / DOCTOR / ADMIN，**只读** —— 账号类型不归自己改 */
+  role: string
+  /** 角色中文名，由后端下发，前端不再维护一份映射 */
+  roleLabel: string
+}
+
+/** 修改资料入参。**不含 id**：目标账号由服务端从 token 反查 */
+export interface ProfileUpdatePayload {
+  username: string
+  realName: string
+  /** 空串表示清空 */
+  phone: string
+  /** 空串表示清空头像 */
+  avatarUrl: string
+}
+
+/** 修改密码入参。confirmPassword 只在前端用，不发给后端 */
+export interface ChangePasswordPayload {
+  oldPassword: string
+  newPassword: string
 }
 
 /** 医生资质审核状态。PENDING 时后端会直接拒绝登录 */
@@ -163,6 +204,18 @@ export interface ScaleItemView {
 export interface ScaleDetail {
   scale: Scale
   items: ScaleItemView[]
+}
+
+/**
+ * 管理端筛查表列表项（GET /scale/manage/list）。
+ *
+ * 比居民端 `Scale` 多两个聚合字段：题数、测评次数。
+ * `assessmentCount > 0` 时删除只是"下架"——历史测评记录与逐题明细都会保留，
+ * 前端据此在删除确认框里把影响讲清楚，而不是只问一句"确认删除？"。
+ */
+export interface AdminScale extends Scale {
+  /** 已产生的测评次数 */
+  assessmentCount: number
 }
 
 // ===== 测评 =====
@@ -331,8 +384,13 @@ export interface Notification {
  * 运营物料。与 `Notification` 是**两张表**：那个是按用户一对一推送的站内信，
  * 这个是面向全体访客的轮播位（见后端 `sql/v9_banner_ddl.sql` 的论证）。
  *
- * `imageUrl` 是**相对路径**（`/api/uploads/banner/...`），需由前端拼上请求
- * baseURL 才能访问；存绝对 URL 会在换域名时全部失效。
+ * `imageUrl` 是**后端直接给的可访问地址**，前端原样塞进 `<img src>`，不做任何拼接：
+ *   - 本地存储：相对路径 `/api/uploads/banner/...`（dev 走 vite 代理、生产走 nginx 转发）
+ *   - 对象存储：绝对地址 `https://<bucket>.oss-<region>.aliyuncs.com/banner/...`
+ *
+ * 为什么允许绝对 URL：图片不再跟后端同主机，必须能指向外部域。代价是**换域名时要
+ * 批量改库**（后端 `psycare.upload.oss.public-domain` 是配置项，迁移脚本按
+ * 「旧前缀 → 新前缀」一条 UPDATE 即可）。单机本地模式则没有这个问题。
  *
  * `startAt` / `endAt` 均可为 `null`，语义是开放区间：都为空 = 永久展示。
  */

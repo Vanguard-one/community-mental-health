@@ -274,6 +274,14 @@ const props = withDefaults(
     hover?: number
     /** 10~800，透镜作用半径（px） */
     reach?: number
+    /**
+     * 1~2，设备像素比上限。
+     *
+     * 默认 2（原始实现的值）。降到 1.5 会让 pass 2 的填充率降低约 44% ——
+     * 对「背后还有玻璃层、大面积阴影、会滚动的内容」的页面（如 AI 问诊）
+     * 这是最有效的一档节流，代价只是马赛克格子略软一点（本效果本来就是碎格）。
+     */
+    dprCap?: number
   }>(),
   {
     background: '',
@@ -285,6 +293,7 @@ const props = withDefaults(
     tileSize: 6,
     hover: 75,
     reach: 288,
+    dprCap: 2,
   },
 )
 
@@ -457,10 +466,26 @@ function start(): (() => void) | null {
 
   /* ---------- 颜色 ---------- */
   const readVar = (name: string): string => getComputedStyle(root).getPropertyValue(name).trim()
+  const VAR_REF = /^var\(\s*(--[A-Za-z0-9_-]+)\s*\)$/
+  /**
+   * 把读到的 CSS 值变成颜色，**额外支持一层 `var(--x)` 间接引用**。
+   *
+   * 为什么不直接信任 `getComputedStyle` 会替我们展开：
+   * 自定义属性的 computed value 在各家浏览器里的展开时机并不一致（有的返回
+   * `var(--x)` 原文，有的返回替换后的值）。而「一个页面覆盖 `--lens-bg` 指向
+   * 另一个 token」正是本组件的常规用法（问诊页就是这么写的），一旦解析失败就会
+   * **静默**落到 FALLBACK（紫底），页面会莫名其妙变成另一种配色 —— 所以这里
+   * 主动再查一层：拿到 `var(--x)` 就去读 `--x` 的值。只跟一层，不做递归。
+   */
+  const readColor = (raw: string): RGB | null => {
+    const ref = raw.match(VAR_REF)
+    if (!ref) return parseColor(raw)
+    return parseColor(readVar(ref[1]))
+  }
   const resolveColor = (prop: string, varName: string, fallback: string): RGB => {
     const fromProp = parseColor(prop)
     if (fromProp) return fromProp
-    const fromVar = parseColor(readVar(varName))
+    const fromVar = readColor(readVar(varName))
     if (fromVar) return fromVar
     // 兜底色解析失败（几乎不可能）也要返回一个合法的三元组，不能让调用方拿到 null
     return parseColor(fallback) ?? ([0, 0, 0] as RGB)
@@ -476,6 +501,7 @@ function start(): (() => void) | null {
   const tileN = clampN(Math.round(Number(props.tileSize)), 6, 48)
   const hoverN = clampN(Number(props.hover), 0, 200) / 100
   const reachN = clampN(Number(props.reach), 10, 800)
+  const dprCapN = clampN(Number(props.dprCap), 1, 2)
 
   /*
    * uPaper 决定最终走「暗底 + 发光」还是「纸感浅底」。
@@ -499,7 +525,7 @@ function start(): (() => void) | null {
     last = now
     clock = (clock + dt * speedN) % 3600
 
-    const dpr = Math.min(window.devicePixelRatio || 1, 2)
+    const dpr = Math.min(window.devicePixelRatio || 1, dprCapN)
     const cw = canvas.clientWidth || 1
     const ch = canvas.clientHeight || 1
     const bw = Math.max(1, Math.round(cw * dpr))
@@ -577,6 +603,15 @@ function start(): (() => void) | null {
   if (reduced) {
     drawFrame(0)
   } else {
+    /*
+     * 先同步画第一帧，再挂 RAF。
+     *
+     * 否则从「挂载」到「第一次 RAF 回调」之间（路由切换动画期间可能超过 16ms），
+     * canvas 是空白的 —— 透出来的只有 `.lens` 的 `--lens-bg` 纯色。
+     * 观感就是「先闪一下纯色，图案才长出来」，在页面切换时特别明显。
+     * 这一帧画完 `last` 已经是 0，下一帧 dt 会被钳到 50ms，肉眼看不出来。
+     */
+    drawFrame(0)
     window.addEventListener('pointermove', readPointer, { passive: true })
     window.addEventListener('pointerdown', readPointer, { passive: true })
     document.addEventListener('pointerout', onPointerOut)

@@ -30,6 +30,15 @@ public class AiUsageLog {
 
     private Long userId;
 
+    /**
+     * 调用类型：CHAT（主对话流式）/ SUMMARY（会话摘要）/ FOLLOWUP（追问建议）。
+     *
+     * <p>三者<b>都计费</b>，但只有 CHAT 是用户可见的那一次调用。
+     * 没有这一列时，成本报表只能算到 CHAT，「一轮问答实际花了多少」永远是低估的。
+     * 由 `ai_usage_log.kind` 承载（v12 迁移），默认 CHAT 以兼容历史数据。
+     */
+    private String kind;
+
     private String model;
 
     /** 思考档位 low/high/max；null 表示当时用的是服务端默认 */

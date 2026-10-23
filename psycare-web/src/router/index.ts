@@ -59,6 +59,15 @@ const routes: RouteRecordRaw[] = [
     children: [
       // 驾驶舱仅管理端可见，医生端进入时由 AdminLayout 菜单过滤 + 页面自身兜底
       { path: 'dashboard', name: 'admin-dashboard', component: () => import('@/views/admin/Dashboard.vue') },
+      // 评测筛查表：配置的是居民端能做什么测评 —— 全站测评链路的入口，
+      // 医生改不了也不该改（禁掉一张表影响全体居民），所以只给 ADMIN。
+      // 当前只做治理（启用/禁用/删除），新增筛查表暂缓。
+      {
+        path: 'scales',
+        name: 'admin-scales',
+        component: () => import('@/views/admin/ScaleManage.vue'),
+        meta: { roles: ['ADMIN'] },
+      },
       // 账号治理：纯管理职能，医生不得进入（子路由 meta.roles 已收紧，守卫按匹配链逐层校验）
       {
         path: 'accounts',

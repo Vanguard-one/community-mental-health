@@ -9,7 +9,19 @@
     「四套图标保持同一栅格与底衬」就只是口头约定，改一处必然漏一处。
   -->
   <span class="role-avatar" :class="`is-${role}`" :style="themeStyle" aria-hidden="true">
-    <svg class="ra-svg" viewBox="0 0 96 96" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <!--
+      有自定义头像就显图，没有再回落角色图标。
+      回落必须保留：上传的图可能被清理掉（孤儿文件清理、换部署丢磁盘），
+      此时 avatarUrl 指向 404 —— 图标仍在，界面不会出现一个破图方块。
+    -->
+    <img v-if="showImg" class="ra-img" :src="src" alt="" @error="onImgError" />
+    <svg
+      v-else
+      class="ra-svg"
+      viewBox="0 0 96 96"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
       <defs v-if="role === 'ai'">
         <linearGradient :id="gradId" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0" stop-color="#63AAFF" />
@@ -87,7 +99,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, useId } from 'vue'
+import { computed, ref, useId, watch } from 'vue'
 
 /**
  * 角色。`user` 同时承担「居民」与「未设置头像的缺省态」两种语义 ——
@@ -104,9 +116,43 @@ const props = withDefaults(
      * 传了 `:size` 则内联样式优先级最高，媒体查询改不动它，二选一。
      */
     size?: number
+    /**
+     * 自定义头像 URL。传了就显图，不传（或加载失败）回落角色图标。
+     *
+     * 为什么做成这个组件的 prop 而不是新开一个 Avatar 组件：
+     * 全站 13 处圆形头像共用同一个「缺省态」规则（四套图标、同一栅格、
+     * 同一底衬）。新开一个组件，这两套就得各维护一份缺省逻辑，
+     * 而缺省态恰恰是最容易被漏测的路径。
+     */
+    src?: string
   }>(),
   { role: 'user' },
 )
+
+/**
+ * 加载失败标记。
+ *
+ * 为什么需要它：`<img>` 加载失败时浏览器会显示一个破图图标 + alt 文本，
+ * 在 38px 的圆形头像里就是一块灰色噪点，比没有头像难看得多。
+ * 这里记下失败的 URL 并在模板里回落 —— 但**不缓存全局**，
+ * 否则用户重新上传后同一路径还能用时会一直被挡住。
+ *
+ * `watch(src)` 重置：同一个头像位换了新图（资料面板里刚上传），
+ * 不清掉标记就会一直显示图标，看起来像「上传没生效」。
+ */
+const failedSrc = ref('')
+watch(
+  () => props.src,
+  () => {
+    failedSrc.value = ''
+  },
+)
+function onImgError() {
+  failedSrc.value = props.src || ''
+}
+
+/** 是否显图。加载失败的那个 URL 不显，直接落到图标分支 */
+const showImg = computed(() => !!props.src && failedSrc.value !== props.src)
 
 /**
  * AI 图案的渐变要一个 id。同一页面会渲染多个头像，
@@ -187,6 +233,28 @@ const themeStyle = computed(() => {
   display: block;
   width: 84%;
   height: 84%;
+}
+
+/*
+ * 自定义头像。
+ *
+ * `object-fit: cover` 而不是 contain：用户传的图比例不可控（手机拍的 4:3、截图 16:9），
+ * contain 会在圆里留出白边，看起来像「头像没铺满」。
+ *
+ * 尺寸取 100% 而不是像 .ra-svg 那样留 84%：图标留白是为了让图形在圆形底衬里
+ * 显得有呼吸感；而照片本身就是满幅内容，再缩一圈只会变成一圈灰边。
+ * 代价是照片会盖住底衬（--tile-bg）与内圈描边 —— 这正是想要的：
+ * 有真实头像时，角色色底衬不再有信息价值。
+ *
+ * 圆角必须再写一次：外层虽然有 border-radius: 50%，但 img 自身是矩形，
+ * 不给它圆角会出现方形图片的四角戳出圆形之外（部分浏览器不会按父级裁剪）。
+ */
+.ra-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
 }
 
 /*

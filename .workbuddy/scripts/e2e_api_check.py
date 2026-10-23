@@ -151,6 +151,26 @@ if session_id:
     record(got_event, "/ai-consult/chat 建立 SSE 流",
            "已建立（正文依赖 LLM_API_KEY，未配置时为空/报错属预期）")
 
+    # 危机短路轮**不应**收到 followups：居民刚表达了自伤念头，
+    # 「接着问什么」的建议在这一轮属于诱导。这条是确定性断言，不依赖模型输出。
+    no_fu = "event:followups" not in text
+    record(no_fu, "危机轮次不下发 followups（安全口径）",
+           "未出现" if no_fu else "⚠️ 出现了 followups，与 followupEvents 的排除条件不符")
+
+    # 正常轮：followups 必须排在 done **之后**（排在前面会把输入框解锁推迟 1~2s）。
+    # 是否出现取决于模型是否给出合法 JSON，属可接受的降级，因此只校验顺序、不强制存在。
+    st2, text2 = call("POST", "/ai-consult/chat", rt,
+                      {"sessionId": session_id, "content": "最近总是睡不好，晚上容易想事情"},
+                      raw=True)
+    has_fu = "event:followups" in text2
+    order_ok = (not has_fu) or (
+        "event:done" in text2
+        and text2.index("event:followups") > text2.rindex("event:done")
+    )
+    record(order_ok, "/ai-consult/chat followups 排在 done 之后",
+           "未出现（模型未给出合法 JSON 或超时，属预期降级）" if not has_fu
+           else ("顺序正确" if order_ok else "⚠️ 顺序错误：followups 出现在 done 之前"))
+
 # ---------- 6. 医生推荐 ----------
 print("\n[6] 医生推荐（验证会话关联测评驱动）")
 st, body = call("GET", f"/recommend/doctors?sessionId={session_id}&topN=3", rt)
@@ -249,6 +269,80 @@ for path, label in [("/admin/dashboard/stats", "stats"),
     payload = body.get("data") if isinstance(body, dict) else None
     record(st == 200 and payload is not None, f"GET {path}",
            json.dumps(payload, ensure_ascii=False)[:200])
+
+# ---------- 10. 个人资料 ----------
+# 覆盖三件事：① 三种角色都能读自己的资料；② 改资料能落库且回读一致；
+# ③ 越权与校验被挡住。**注意**：本节会把居民账号的姓名改成临时值再改回来，
+# 结束时必须还原，否则多次执行会污染演示数据。
+print("\n[10] 个人资料（三端 + 越权 + 校验）")
+
+for who, tok in [("居民", rt), ("医生", dt), ("管理员", at)]:
+    st, body = call("GET", "/profile/me", tok)
+    data = body.get("data") if isinstance(body, dict) else None
+    record(st == 200 and (body.get("code") == 200) and bool(data),
+           f"{who} 读取自己资料", f"username={(data or {}).get('username')} role={(data or {}).get('role')}")
+
+st, body = call("GET", "/profile/me")
+record(st == 401 or (isinstance(body, dict) and body.get("code") == 401),
+       "未登录访问 /profile/me 被拒", f"http={st} code={(body or {}).get('code')}")
+
+# 改资料（把姓名加一个后缀，再改回来）
+st, body = call("GET", "/profile/me", rt)
+orig = body.get("data") or {}
+orig_name = orig.get("realName") or "居民"
+
+tmp_name = (orig_name + "测")[:20]
+st, body = call("PUT", "/profile/me", rt, {
+    "username": orig.get("username"),
+    "realName": tmp_name,
+    "phone": orig.get("phone") or "",
+    "avatarUrl": orig.get("avatarUrl") or "",
+})
+saved = body.get("data") if isinstance(body, dict) else None
+record(st == 200 and (saved or {}).get("realName") == tmp_name,
+       "保存资料生效并回传新值", f"realName={(saved or {}).get('realName')!r}")
+
+st, body = call("GET", "/profile/me", rt)
+again = body.get("data") if isinstance(body, dict) else {}
+record((again or {}).get("realName") == tmp_name, "重新读取确认已落库",
+       f"realName={(again or {}).get('realName')!r}")
+
+# 还原
+call("PUT", "/profile/me", rt, {
+    "username": orig.get("username"),
+    "realName": orig_name,
+    "phone": orig.get("phone") or "",
+    "avatarUrl": orig.get("avatarUrl") or "",
+})
+st, body = call("GET", "/profile/me", rt)
+record(((body.get("data") or {}).get("realName")) == orig_name, "已还原原始姓名",
+       f"realName={((body.get('data') or {}).get('realName'))!r}")
+
+# 头像地址白名单：外站 URL 必须被拒
+st, body = call("PUT", "/profile/me", rt, {
+    "username": orig.get("username"),
+    "realName": orig_name,
+    "phone": "",
+    "avatarUrl": "https://evil.example.com/x.png",
+})
+record(isinstance(body, dict) and body.get("code") == 400,
+       "外站头像 URL 被拒（前缀白名单）", f"code={(body or {}).get('code')} msg={(body or {}).get('msg')}")
+
+# 账号格式校验
+st, body = call("PUT", "/profile/me", rt, {
+    "username": "1bad",
+    "realName": orig_name,
+    "phone": "",
+    "avatarUrl": "",
+})
+record(isinstance(body, dict) and body.get("code") == 400,
+       "非法账号格式被拒", f"code={(body or {}).get('code')} msg={(body or {}).get('msg')}")
+
+# 改密码：旧密码错误必须被拒（**故意不改成功**，避免污染演示账号口令）
+st, body = call("PUT", "/profile/password", rt,
+                {"oldPassword": "definitely-wrong", "newPassword": "newpass123"})
+record(isinstance(body, dict) and body.get("code") == 400,
+       "旧密码错误被拒", f"code={(body or {}).get('code')} msg={(body or {}).get('msg')}")
 
 # ---------- 汇总 ----------
 print("\n" + "=" * 72)

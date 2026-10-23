@@ -135,6 +135,21 @@ export interface ConsultCitations {
   items: ConsultCitation[]
 }
 
+/**
+ * `followups` 事件：本轮回答之后的三条追问建议。
+ *
+ * **它是唯一排在 `done` 之后的事件**（见 `SSE事件协议.md`）：生成要额外调一次模型，
+ * 而 `done` 是前端解除「发送中」的信号。放在 done 之前，用户会看到回复已写完、
+ * 输入框却还锁着一两秒。
+ *
+ * 三条与输入框上方三个槽位**按下标一一对应**（`items[0]` → 第一个槽），
+ * 不做语义匹配。条数可能少于 3：后端会把不合格的（太短、命中安全词表）整批丢弃，
+ * 也可能返回 2 条 —— 前端不足就隐藏多余槽位，不留占位空块。
+ */
+export interface ConsultFollowups {
+  items: string[]
+}
+
 export interface ConsultHandlers {
   onMeta?: (meta: ConsultMeta) => void
   /** 增量正文 */
@@ -155,6 +170,13 @@ export interface ConsultHandlers {
    * 没有资料可引用时后端**不发**这个事件，`items` 不会为空数组。
    */
   onCitations?: (citations: ConsultCitations) => void
+  /**
+   * 本轮回答之后的追问建议。**在 `done` 之后到达**。
+   *
+   * 收不到这个事件是完全正常的（生成超时 / 模型输出不可解析 / 危机轮次不生成），
+   * 调用方必须有静态兜底，不能把它当必需数据。
+   */
+  onFollowups?: (followups: ConsultFollowups) => void
   onUsage?: (usage: ConsultUsage) => void
   onError?: (error: ConsultError) => void
   onDone?: () => void
@@ -168,6 +190,7 @@ const EV_OVERRIDE = 'override'
 const EV_CRISIS = 'crisis'
 const EV_RECOMMEND = 'recommend'
 const EV_CITATIONS = 'citations'
+const EV_FOLLOWUPS = 'followups'
 const EV_ERROR = 'error'
 const EV_DONE = 'done'
 const DONE_MARK = '[DONE]'
@@ -254,10 +277,17 @@ export async function chatStream(
       case EV_CITATIONS:
         handlers.onCitations?.(safeParse<ConsultCitations>(data))
         break
+      case EV_FOLLOWUPS:
+        handlers.onFollowups?.(safeParse<ConsultFollowups>(data))
+        break
       case EV_ERROR:
         handlers.onError?.(safeParse<ConsultError>(data))
         break
       case EV_DONE:
+        // ⚠️ 这里**不许 break 出读取循环**，也不要在这里把 reader 关掉。
+        // `done` 的语义是「正文结束」，它后面还可能有一帧 `followups`（追问建议）——
+        // 生成建议要额外调一次模型，所以它必然晚于 done 到达。
+        // 提前退出会让输入框上方的三条建议永远停在静态兜底上，而且不报任何错。
         handlers.onDone?.()
         break
       default:

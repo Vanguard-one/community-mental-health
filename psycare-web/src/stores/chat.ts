@@ -123,6 +123,37 @@ export const useChatStore = defineStore('chat', () => {
   const recommendAccepted = ref(false)
   /** 当前会话状态：OPEN / CLOSED。恢复出来的会话可能是已结束的（历史遗留数据） */
   const sessionStatus = ref('OPEN')
+  /**
+   * 本轮回答之后的三条追问建议（`followups` 事件，在 `done` 之后到达）。
+   *
+   * <p>**空数组是常态而不是异常**：生成失败、超时、危机轮次、模型输出不可解析，
+   * 后端都不会发这个事件。视图侧必须以静态三条兜底，不能把「没有建议」渲染成空白。
+   *
+   * <p>与当前回答**强绑定**：新一轮开始后旧建议必须失效，否则用户会对着
+   * 一段新回答看到上一轮才成立的三句话（见 `send()` 里的 `myIdx` 守卫）。
+   */
+  const followups = ref<string[]>([])
+  /**
+   * 本轮是否还在「等建议」。
+   *
+   * <p>为什么需要它：`sending` 在 `done` 就变 false 了（正文结束即解锁输入），
+   * 而 `followups` 还要 1~2 秒才到、甚至永远不来。这一两秒里视图如果按
+   * 「sending=false 就显示建议」渲染，会先亮出静态兜底那三条、再被真建议替换掉 ——
+   * 用户看到的是「提示自己变回固定消息了」。
+   *
+   * <p>它有两个正常落点，**谁先到就按谁放行**：
+   * <ol>
+   *   <li>收到 `followups` 事件 —— 内容已经是最终态，立刻放行（推荐路径，
+   *       不依赖「客户端什么时候察觉流关闭」）；</li>
+   *   <li>整条流关闭仍没收到 —— 说明这一轮压根没有建议（危机轮次 / 生成失败 / 超时），
+   *       放行后由视图回落到静态三条。</li>
+   * </ol>
+   * 两个落点都指向「显示的一定是最终内容」，所以中间不存在「先兜底再替换」的可视帧。
+   *
+   * <p>与 `sending` 的关系：`sending` 管「能不能发」，它管「建议能不能显示」。
+   * 两者在 `done` 与流关闭之间刻意不同步 —— 这正是它存在的理由。
+   */
+  const followupsPending = ref(false)
   /** 较早对话的摘要（从后端带回），用于向用户解释「更早的内容还在」 */
   const summary = ref<string | null>(null)
   /** 会话列表。页面侧已无「历史会话」入口，仅供恢复最近一段对话、取关联测评用 */
@@ -168,6 +199,10 @@ export const useChatStore = defineStore('chat', () => {
     crisisReason.value = null
     recommendAccepted.value = false
     lastFailedText.value = null
+    // 追问建议跟着会话走：换了一段对话，上一段的三句话与新的回答毫无关系
+    followups.value = []
+    // 同理，「等建议中」也是上一段的状态。留着它会让新一段对话的建议行一直不出来
+    followupsPending.value = false
     stage.value = { stage: 'OPENING', label: '建立联结', step: 1, total: STAGE_TOTAL, goal: '' }
   }
 
@@ -179,10 +214,13 @@ export const useChatStore = defineStore('chat', () => {
    * 「打开」—— 传进来的 assessmentId / alertId 会被**更新**到那条会话上，
    * 这样「做完测评再来问诊」不会把对话记录切断。
    *
-   * <p>`sessionId` 非空时直接返回：同一页面重复调用（组件重挂载）不该重复开口。
+   * <p>短路条件必须是「**有一段还能发消息的会话**」，而不是「sessionId 非空」：
+   * store 里可能残留着一条已 CLOSED 的会话（上一轮 <code>loadSession</code> 装进来的），
+   * 此时 sessionId 有值却发不出消息 —— 只看 id 就会把这个坏状态一直留着，
+   * 用户每次进页面都看到「会话已结束」。
    */
   async function open(assessmentId?: number | null, alertId?: number | null) {
-    if (sessionId.value !== null) return sessionId.value
+    if (sessionId.value !== null && sessionStatus.value === 'OPEN') return sessionId.value
     opening.value = true
     try {
       const res = await openSession(assessmentId, alertId)
@@ -207,10 +245,14 @@ export const useChatStore = defineStore('chat', () => {
   /**
    * 拉取会话列表。
    *
-   * <p>页面侧已经**没有**「历史会话」入口了，这个方法现在的用途是：
-   * ① 供 `restoreLast()` 找到最近一段对话；
-   * ② 供 `loadSession()` 取 `assessmentId` —— 明细接口不带这个字段，
+   * <p>页面侧已经**没有**「历史会话」入口了，这个方法现在只有一个用途：
+   * 供 `loadSession()` 取 `assessmentId` —— 明细接口不带这个字段，
    * 而右栏的「关联测评」卡要用它。
+   *
+   * <p>⚠️ **不要再用它判断「当前该打开哪条会话」**：列表只回最近 5 条
+   * （`AiConsultService.SESSION_LIST_LIMIT`），一旦这 5 条恰好都已结束，
+   * 那条真正进行中的会话就不在列表里。判断会话是否可继续，只有
+   * `openSession` 一个可靠来源 —— 详见 {@link enter} 的说明。
    */
   async function loadSessions(): Promise<void> {
     loadingSessions.value = true
@@ -271,6 +313,11 @@ export const useChatStore = defineStore('chat', () => {
         : null
       summary.value = detail.summary
       lastFailedText.value = null
+      // followups 不落库（见 FollowupSuggester 的注释），所以历史会话里一定没有建议。
+      // 这里必须显式清空：否则切换会话后，上一条会话最后那三条建议会残留在新会话的输入框上方，
+      // 看起来像「AI 针对这段历史回答了什么问题」。
+      followups.value = []
+      followupsPending.value = false
       // 关联测评 id 只在列表接口里（明细不带），没拉过列表就先拉一次 ——
       // 否则从「刷新恢复」这条路径进来的会话，右栏的关联测评卡会莫名其妙空掉
       if (!sessions.value.length) {
@@ -287,45 +334,32 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   /**
-   * 恢复这个居民最近的一段对话，并把消息装进 store。
-   *
-   * <p>数据从**服务端**来，不再依赖 localStorage 里的一个 id：
-   * 一个居民只有一条进行中的 AI 会话（见 `AiConsultService.openSession` 的复用逻辑），
-   * 所以「最近一条」就是「他一直在聊的那段」。少一个本地状态源，就少一类
-   * 「本地记的 id 与服务端实际对不上」的故障，顺带让换浏览器、清缓存之后记录也还在。
-   *
-   * <p>优先挑**进行中**的：历史遗留数据里可能有已结束的会话，恢复它会让界面只能看不能发。
-   *
-   * <p>返回 false 是**正常情况**之一（新用户、会话被清理、接口失败），
-   * 调用方据此新建一条，用户不会看到任何报错。
-   */
-  async function restoreLast(): Promise<boolean> {
-    try {
-      const list = await listSessions()
-      sessions.value = list
-      const target = list.find((s) => s.status === 'OPEN') ?? list[0]
-      if (!target) return false
-      return await loadSession(target.sessionId)
-    } catch {
-      return false
-    }
-  }
-
-  /**
    * 进入 AI 问诊页：把「这个居民的这段对话」装好。
    *
-   * <p>两种进入方式共用它，差别只在第一步：
-   * <ul>
-   *   <li>带 `assessmentId`（从测评结果页发起）→ 直接 open：后端会**复用**既有会话
-   *       并把**这次**测评关联上，所以对话记录不会因为做了一次测评就断掉；</li>
-   *   <li>不带 → 先恢复最近一段对话，确实没有才新建。</li>
-   * </ul>
+   * <h3>为什么不再「先查列表、再挑一条」</h3>
+   * <p>旧实现是 `restoreLast()`：拉会话列表，优先找 `status === 'OPEN'` 的，
+   * 找不到就退而求其次取 `list[0]`。这条路有两个致命前提：
+   * <ol>
+   *   <li><b>列表里必须有那条进行中的会话</b>。而列表接口带 `LIMIT 5`
+   *       （`AiConsultService.SESSION_LIST_LIMIT`）并按 id 倒序 —— 一旦最近 5 条
+   *       恰好都是已结束的，那条真正 OPEN 的会话就被挤到了窗口之外；</li>
+   *   <li>`list[0]` 这个兜底会**把一条 CLOSED 的会话加载进来**，于是界面直接
+   *       显示「该会话已结束，只能查看历史消息」+「开启新会话」。</li>
+   * </ol>
+   * <p>实测复现（2026-10-22，user02）：库里共 40 多条 AI 会话，最近 5 条
+   * （id 61~65）全是 CLOSED，而 id=60 那条 OPEN、带 14 条消息的在第 6 位 ——
+   * 于是每次进页面都落到一条空白的已结束会话上，看起来像「聊了一半回来就结束了」。
+   * user01 最近 5 条里正好有一条 OPEN，所以同样是这个 bug 却看不出问题。
    *
-   * <p>拿到会话 id 之后还要显式拉一次消息明细：`open()` 只保证「会话存在」，
-   * 而它很可能是**复用**来的、里头已经躺着几十条消息，store 的 messages 却是空的。
+   * <h3>现在只做一件事：调 openSession</h3>
+   * <p>服务端的语义本来就是「这个居民**进行中**的那段对话」：按
+   * `resident_id + consult_type=AI + status=OPEN` 查（<b>不受列表 LIMIT 约束</b>），
+   * 有就复用、没有才新建。这正是进入页面需要的全部判断，
+   * 前端再拿一份列表去猜，只会多一个会和真实状态漂移的真相源。
+   *
+   * @param assessmentId 从测评结果页发起时传入，会被写到（或更新到）当前会话上
    */
   async function enter(assessmentId?: number | null): Promise<boolean> {
-    if (assessmentId == null && (await restoreLast())) return true
     let sid: number | null = null
     try {
       sid = await open(assessmentId)
@@ -367,6 +401,16 @@ export const useChatStore = defineStore('chat', () => {
 
     messages.value.push({ ...emptyItem('user'), content: text })
     messages.value.push({ ...emptyItem('ai'), streaming: true })
+    // 本轮 AI 气泡的下标。用途是判断「流里的这个回调还属于最后一轮吗」——
+    // 详见 onDone 与 finally 里的守卫。
+    const myIdx = messages.value.length - 1
+    // 旧建议立刻作废：它们是针对上一段回答生成的，与新问题无关。
+    // 清空后如果本轮没收到 followups（生成失败/危机轮次），视图会回落到静态兜底三条。
+    followups.value = []
+    // 整个回合（正文 + 建议生成）都算「等建议」：视图据此把建议行整行藏起来。
+    // 藏而不是「灰掉」，是因为上一轮的三句话对新问题不成立，
+    // 灰着显示既点不了、又让人以为点得动（2026-10-22 用户反馈「有虚影」就是 0.55 透明度造成的）。
+    followupsPending.value = true
     sending.value = true
 
     try {
@@ -417,6 +461,43 @@ export const useChatStore = defineStore('chat', () => {
         onError: (error) => {
           bubble().error = error
         },
+        /**
+         * 正文结束（`done`）。**这是本轮最早可以解锁输入的时刻**。
+         *
+         * ⚠️ 不要以为流到这里就结束了：后端在 done 之后还会发一帧 `followups`
+         * （生成要额外调一次模型，1~2 秒）。`chatStream()` 的 promise 要等整条流关闭
+         * 才 resolve，若把解锁放在 finally 里，发送按钮会被这个旁路任务多锁一两秒 ——
+         * 用户已经读完回复、也看出了下一步想说什么，却点不了发送。
+         *
+         * 代价是「解锁后旧流仍有事件可能到达」，所以这里与 onFollowups 都要判
+         * `myIdx`：用户若在这一两秒内真的发了下一条，长度会变，旧事件就被丢弃。
+         */
+        onDone: () => {
+          if (messages.value.length - 1 !== myIdx) return
+          messages.value[myIdx].streaming = false
+          sending.value = false
+        },
+        /**
+         * 追问建议。**排在 done 之后**，因此到达时发送按钮早已解锁。
+         *
+         * 条数可能不足 3（后端会丢弃太短或命中安全词表的条目），
+         * 也可能整个事件不出现 —— 视图侧必须有静态兜底。
+         */
+        onFollowups: (f) => {
+          // 用户已经发了下一轮：这批建议属于上一段回答，直接丢弃，不要覆盖新一轮的槽位
+          if (messages.value.length - 1 !== myIdx) return
+          const items = (f?.items ?? [])
+            .filter((t) => typeof t === 'string' && t.trim().length > 0)
+            .slice(0, 3)
+          if (!items.length) return
+          followups.value = items
+          // 建议到手就放行建议行，**不再等流关闭**。
+          // 服务端发完 followups 才结束响应，两者相差只有几毫秒，所以正常情况下看不出区别；
+          // 但「靠流关闭来放行」把可视时机压在「客户端什么时候察觉响应结束」上 ——
+          // 代理缓冲、连接延迟、reader 调度都会让这个察觉晚于数据的到达。
+          // 拿到最终内容的那一刻就显示，是唯一不依赖时序推断的判据。
+          followupsPending.value = false
+        },
       })
       return true
     } catch (e) {
@@ -430,11 +511,21 @@ export const useChatStore = defineStore('chat', () => {
       if (!last.content) last.content = '（对话中断，未能收到任何回复）'
       return false
     } finally {
-      const last = bubble()
-      last.streaming = false
-      sending.value = false
-      // 只在「真的失败」时保留重试入口，正常对话结束后按钮不该还亮着
-      lastFailedText.value = last.error ? text : null
+      // 兜底解锁，不是主路径：正常结束时 `onDone` 已经放掉了 sending。
+      // 这里真正要兜住的是「异常断开」—— 那种情况下 onDone 根本不会触发，
+      // 只有这里能把发送按钮和光标记号收回来。
+      //
+      // ⚠️ 守卫同样必要：用户可能在 onDone 解锁后的一两秒内就发了下一轮，
+      // 此时 `bubble()` 指向的是新一轮的气泡，无脑改它会把还在流的新回复掐掉。
+      if (messages.value.length - 1 === myIdx) {
+        messages.value[myIdx].streaming = false
+        sending.value = false
+        // 流已经关掉了：本轮的建议要么已经写进 followups，要么根本不会来。
+        // 到这一刻才放行建议行，用户看到的第一帧就是最终内容 —— 没有「先兜底再替换」的闪。
+        followupsPending.value = false
+        // 只在「真的失败」时保留重试入口，正常对话结束后按钮不该还亮着
+        lastFailedText.value = messages.value[myIdx].error ? text : null
+      }
     }
   }
 
@@ -525,6 +616,8 @@ export const useChatStore = defineStore('chat', () => {
       crisisDetected.value = false
       crisisReason.value = null
       lastFailedText.value = null
+      // 消息都清空了，追问建议失去依据；留着会变成「针对不存在的回答」的三条提示
+      followups.value = []
       return deleted
     } catch {
       return null
@@ -535,6 +628,8 @@ export const useChatStore = defineStore('chat', () => {
     sessionId,
     sessionStatus,
     summary,
+    followups,
+    followupsPending,
     linkedAssessmentId,
     linkedAlertId,
     messages,
@@ -554,7 +649,6 @@ export const useChatStore = defineStore('chat', () => {
     open,
     loadSessions,
     loadSession,
-    restoreLast,
     enter,
     startNewSession,
     send,

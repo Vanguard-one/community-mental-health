@@ -26,16 +26,16 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted } from 'vue'
+import { computed, onBeforeUnmount, onMounted, type Component } from 'vue'
 import { useRoute } from 'vue-router'
 import {
   HomeOutlined,
   FileTextOutlined,
-  MessageOutlined,
   TeamOutlined,
   MailOutlined,
   BellOutlined,
 } from '@ant-design/icons-vue'
+import IconAi from '@/components/IconAi.vue'
 import SideRail from '@/components/SideRail.vue'
 import type { RailItem } from '@/components/SideRail.vue'
 import { useAuthStore } from '@/stores/auth'
@@ -49,11 +49,23 @@ const inbox = useInboxStore()
  * 导航结构（与角标无关的那部分）。
  * 图标一律取 @ant-design/icons-vue 的 Outlined 线框族 —— 与 AdminLayout 同一族，
  * 避免两个端一个实心一个描边。新增图标会让 vendor 体积上浮，改完必须真构建看数字（硬约定 #9）。
+ *
+ * ⚠️ **唯一的例外是「AI 问诊」的 `IconAi`**（2026-10-23）。它不是 antd 图标，
+ * 是本项目自绘的四角星芒（sparkles）。留这个例外的理由：
+ *   ① AI 这个语义没有公认的 antd Outlined 对位物 —— 现取的 `MessageOutlined`
+ *      与「我的消息」的 `MailOutlined` 在 20px 下几乎分不开（都是「一片纸」）；
+ *   ② 它必须与 AI 问诊页顶部导航第一枚按钮的图标**完全同一形状**，两处共用
+ *      `components/IconAi.vue` 一份几何；
+ *   ③ 仍是**线性描边 + currentColor**，与 Outlined 族同语言，不是实心块。
+ * 所以不要把它「顺手改回 antd 图标」—— 改回去会同时破掉 ①②。
+ *
+ * 类型从 `typeof HomeOutlined` 放宽成 `Component`：前者是单个具体组件类型，
+ * 塞不进自绘组件。`RailItem.icon` 本来就是 `Component`，这里只是与之对齐。
  */
-const NAV: { path: string; label: string; icon: typeof HomeOutlined }[] = [
+const NAV: { path: string; label: string; icon: Component }[] = [
   { path: '/home', label: '首页', icon: HomeOutlined },
   { path: '/scales', label: '测评中心', icon: FileTextOutlined },
-  { path: '/ai-chat', label: 'AI 问诊', icon: MessageOutlined },
+  { path: '/ai-chat', label: 'AI 问诊', icon: IconAi },
   { path: '/doctors', label: '医生咨询', icon: TeamOutlined },
   { path: '/messages', label: '我的消息', icon: MailOutlined },
   { path: '/notifications', label: '通知', icon: BellOutlined },

@@ -107,6 +107,9 @@ public class AuthService {
                 .username(account.getUsername())
                 .realName(account.getRealName())
                 .role(account.getRole())
+                // 头像随登录一起下发：侧栏头像在每一页都要渲染，
+                // 让前端登录后再补查一次会在首屏闪一下默认图标。
+                .avatarUrl(account.getAvatarUrl())
                 .extra(extra.isEmpty() ? null : extra)
                 .build();
     }

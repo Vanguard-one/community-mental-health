@@ -37,6 +37,18 @@ public class SysUser {
     /** 手机号（展示层脱敏，存储可加密） */
     private String phone;
 
+    /**
+     * 头像相对 URL，形如 {@code /api/uploads/avatar/2026/10/19/xxx.png}。
+     * <p>
+     * 放在基表而不是角色表：头像对三种角色语义一致，属「账号共性」。
+     * NULL = 未设置 → 前端回落到 {@code RoleAvatar} 的角色图标。
+     * <p>
+     * 为什么存路径不存 BLOB：与 banner 同一套理由（文件落本地磁盘）。
+     * 尤其不能存 BLOB —— sys_user 是登录的点查表，让它随图片体积膨胀
+     * 会直接拖慢每一次登录。
+     */
+    private String avatarUrl;
+
     /** 角色：RESIDENT / DOCTOR / ADMIN */
     private String role;
 

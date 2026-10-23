@@ -2,48 +2,50 @@ package com.cmh.psycare.service;
 
 import com.cmh.psycare.common.exception.BizException;
 import com.cmh.psycare.config.UploadProperties;
+import com.cmh.psycare.service.storage.FileStorage;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
 import javax.imageio.ImageIO;
 
 /**
- * 本地磁盘文件上传。
+ * 图片上传：<b>校验 + 生成对象名</b>，落盘/上云交给 {@link FileStorage}。
  *
- * <h3>为什么是「本地磁盘 + 静态映射」，而不是对象存储</h3>
- * <p>这是用户确认的方案。它是本项目最省事且完全够用的做法：单机部署、
- * 文件量小（运营 banner 图，几条到几十条）。代价是<b>多实例部署会失效</b> ——
- * 传在 A 机的图，请求打到 B 机就 404。这个限制必须写在这里，因为
- * 将来横向扩容时，第一个出问题的就是它，而现象（图片时有时无）极难归因。
- * 届时的出路是把本类换成对象存储实现（S3/OSS），接口形态保持不变。
+ * <h3>本类与 FileStorage 的分工</h3>
+ * <p>本类只做「能不能存」和「存成什么名字」，{@link FileStorage} 只做「存到哪」。
+ * 这条分界线的价值在于：所有校验（扩展名、大小、banner 宽高比）都是<b>存储无关</b>的，
+ * 它们必须在 {@code local} 与 {@code oss} 两种模式下<b>完全一致</b>。
+ * 把校验写进存储实现里，切换 provider 就等于悄悄换掉了安全边界。
  *
  * <h3>为什么文件名不用原始名</h3>
  * <p>三个理由，每一个单独都足够：
  * <ol>
  *   <li><b>路径穿越</b>：原始名可能是 {@code ../../application.yml}，
- *       直接拼接会写到目录之外；</li>
+ *       直接拼接会写到目录之外（对象存储里则是写到意料之外的 key）；</li>
  *   <li><b>中文/空格/特殊字符</b>：URL 编码后长短不一，且部分代理会二次解码出错；</li>
  *   <li><b>重名覆盖</b>：运营两次都传「banner.png」，后一张会静默覆盖前一张，
  *       而数据库里两条记录指向同一个名字 → 前一个 banner 的图也变了。</li>
  * </ol>
- * <p>所以落盘名一律是 {@code UUID + 原扩展名}，原始文件名只用于取扩展名。
+ * <p>所以对象名一律是 {@code UUID + 原扩展名}，原始文件名只用于取扩展名。
+ * <p>附带的好处：名字与内容<b>一一对应、永不复用</b>，所以 CDN/浏览器缓存可以给长周期
+ * （改头像 = 换一个新名字的新对象），不存在「缓存了旧图刷不出来」。
  *
  * <h3>为什么按日期分目录</h3>
  * <p>{@code banner/2026/10/09/xxx.png}。单目录下堆几万个文件时，
- * 部分文件系统（尤其是 Windows/NTFS 之外的）在列目录时会明显变慢。
+ * 部分文件系统（尤其是 Windows/NTFS 之外的）在列目录时会明显变慢；
+ * 对象存储的「目录」是 key 前缀，同样受益于按前缀分桶（控制台翻页、按日期批量清理）。
  * 按日期分桶是零成本的预防。
  */
 @Slf4j
@@ -56,36 +58,165 @@ public class UploadService {
     /** banner 的业务子目录名。用它做分支判断，避免在每个调用点重复传「要不要校验比例」 */
     private static final String SUB_DIR_BANNER = "banner";
 
+    /** 头像的业务子目录名。只有它会被 {@link #isAvatarUrl} 认可 */
+    private static final String SUB_DIR_AVATAR = "avatar";
+
     private final UploadProperties props;
+    private final FileStorage storage;
+
+    /**
+     * 保存上传的图片，返回<b>可直接给前端用的 URL</b>。
+     *
+     * <p>{@code local} 模式下形如 {@code /api/uploads/banner/2026/10/09/3f2a...c1.png}；
+     * {@code oss} 模式下是绝对地址 {@code https://bucket.oss.../banner/...}。
+     * 前端两种都能直接塞进 {@code <img src>}（浏览器对相对/绝对地址一视同仁），
+     * 所以切换存储不需要改前端任何一行。
+     *
+     * @param file   上传的文件（由 Spring 的 MultipartFile 接收）
+     * @param subDir 业务子目录，如 {@code banner} / {@code avatar}。按业务分目录是为了
+     *               将来清理时能整目录删，而不用按文件名特征去猜
+     * @return 可写入数据库的 URL
+     */
+    public String saveImage(MultipartFile file, String subDir) {
+        if (file == null || file.isEmpty()) {
+            throw new BizException(400, "请选择要上传的图片");
+        }
+
+        String original = file.getOriginalFilename();
+        String ext = extensionOf(original);
+        if (!isAllowed(ext)) {
+            throw new BizException(400, "只支持 " + props.getAllowedExtensions() + " 格式的图片");
+        }
+
+        // 大小校验放在扩展名之后：先挡掉明显不对的文件，再做（可能较慢的）大小判断。
+        long maxBytes = props.getMaxSizeMb() * 1024L * 1024L;
+        if (file.getSize() > maxBytes) {
+            throw new BizException(400, "图片不能超过 " + props.getMaxSizeMb() + " MB");
+        }
+
+        String safeSubDir = sanitizeSubDir(subDir);
+
+        // ---------- 一次性读入字节 ----------
+        // MultipartFile 的流**不保证可重复读**：若在比例校验里读一次、落盘时再读一次，
+        // 第二次拿到的可能是空流 → 落盘文件 0 字节，且不报错，
+        // 表现为「上传成功但图片打不开」。
+        // 所以统一在这里读一次，校验与存储都用同一份字节 ——
+        // 这也保证了「校验的那份内容」和「真正存下去的内容」绝不会是两个东西。
+        // 大小已限制在 maxSizeMb（默认 5 MB）以内，内存开销可以接受。
+        byte[] bytes;
+        try {
+            bytes = file.getBytes();
+        } catch (IOException e) {
+            throw new BizException(400, "图片读取失败：" + e.getMessage());
+        }
+
+        // ---------- 比例校验 ----------
+        // 只对 banner 生效：目前只有它有「必须铺满固定比例容器」的需求。
+        // 写成分支而不是每个调用方各自校验，是为了让「首页不会被拉长」这件事
+        // 在后端有一道不可绕过的关口 —— 前端裁剪只是体验优化，不是安全边界。
+        if (SUB_DIR_BANNER.equals(safeSubDir)) {
+            checkBannerRatio(bytes, original);
+        }
+
+        String key = safeSubDir + "/" + LocalDate.now().format(DATE_PATH) + "/"
+                + UUID.randomUUID().toString().replace("-", "") + "." + ext;
+
+        String url = storage.store(bytes, key, contentTypeOf(ext));
+        log.info("[Upload:{}] 已保存 {} ({} bytes) → {}", storage.name(), original, bytes.length, url);
+        return url;
+    }
+
+    /**
+     * 这个 URL 是否是本系统上传接口产出的<b>头像</b>。
+     *
+     * <h3>为什么要白名单而不是「不校验」</h3>
+     * <p>{@code avatar_url} 会被写进 {@code <img src>}，直接放行任意字符串是两个问题：
+     * 一是<b>追踪像素</b>（填一个外站地址，所有看他资料的人都向该站发一次请求，
+     * 泄露 IP 与访问时间）；二是<b>潜在的 XSS 落点</b>（历史浏览器对 {@code javascript:}
+     * 之类的伪协议处理不一致）。写进库的 URL 必须可追溯到自己。
+     *
+     * <h3>为什么同时认「本地」与「OSS」两个前缀</h3>
+     * <p>切到 OSS 之后，本地盘上那些历史头像的 URL 仍然留在库里；
+     * 反过来从 OSS 退回 local 时，云上的历史 URL 也要继续有效。
+     * 只认当前 provider 一个前缀，会让「改一个配置」变成「一半人的头像保存时报不合法」。
+     * <p>⚠️ 前缀匹配必须<b>带尾随斜杠</b>：{@code https://b.oss-cn-hangzhou.aliyuncs.com}
+     * 若不带到 {@code /}，{@code https://b.oss-cn-hangzhou.aliyuncs.com.evil.com/x.png}
+     * 恰好也能通过 startsWith。
+     */
+    public boolean isAvatarUrl(String url) {
+        if (!StringUtils.hasText(url)) {
+            return false;
+        }
+        for (String prefix : knownUrlPrefixes()) {
+            if (url.startsWith(prefix + "/" + SUB_DIR_AVATAR + "/")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 本系统图片 URL 的已知前缀集合（不带尾随斜杠）。
+     *
+     * <p>三个来源，都要认：
+     * <ol>
+     *   <li>{@code urlPrefix}（{@code /api/uploads}）—— 本地模式当前值 + 历史数据；</li>
+     *   <li>{@code oss.public-domain} —— OSS 模式当前值；</li>
+     *   <li>{@code oss.public-domain + "/" + oss.key-prefix} —— 配了 key-prefix 时对象名多一层。</li>
+     * </ol>
+     */
+    private List<String> knownUrlPrefixes() {
+        List<String> out = new ArrayList<>(3);
+
+        String local = normalizePrefix(props.getUrlPrefix());
+        if (!local.isEmpty()) {
+            out.add(local);
+        }
+
+        UploadProperties.Oss oss = props.getOss();
+        String domain = normalizePrefix(oss.getPublicDomain());
+        if (!domain.isEmpty()) {
+            out.add(domain);
+            String prefixed = normalizePrefix(domain + "/" + oss.getKeyPrefix());
+            if (!prefixed.equals(domain)) {
+                out.add(prefixed);
+            }
+        }
+        return out;
+    }
+
+    /** 去掉首尾空白与末尾斜杠；null 归一为空串 */
+    private String normalizePrefix(String raw) {
+        if (raw == null) {
+            return "";
+        }
+        String s = raw.trim();
+        while (s.endsWith("/")) {
+            s = s.substring(0, s.length() - 1);
+        }
+        return s;
+    }
 
     /**
      * 校验 banner 图片的宽高比是否落在容差范围内。
-     *
-     * <h3>为什么用 byte[] 而不是直接读流</h3>
-     * <p>{@code MultipartFile} 的流<b>只能读一次</b>。若在这里 {@code ImageIO.read(file.getInputStream())}
-     * 读完，后面 {@code Files.copy(file.getInputStream(), ...)} 拿到的就是已经到 EOF 的空流，
-     * 落盘文件大小为 0 —— 而且不报错，表现为「上传成功但图片打不开」。
-     * 所以这里用 {@code file.getBytes()} 读进内存校验一次，后续落盘复用同一份字节。
-     * 文件大小已被 maxSizeMb 限制在个位数 MB，内存开销可以接受。
      *
      * <h3>为什么解析失败不直接报错</h3>
      * <p>扩展名白名单已经挡掉了大部分非图片，但「改名成 .png 的文本文件」仍可能进来。
      * 这种情况下 {@code ImageIO.read} 返回 null，我们给一个明确的「不是有效图片」提示，
      * 而不是抛 NPE 变成 500 —— 用户看不懂，排查也得多翻一层日志。
+     * <p>webp 在两个 JDK 上都可能没有内置 SPI，此时同样跳过比例校验：
+     * 宁可放过，也不要因为解码器缺失把正常图挡掉。
      */
-    private void checkBannerRatio(MultipartFile file) {
+    private void checkBannerRatio(byte[] bytes, String originalName) {
         BufferedImage img;
         try {
-            byte[] bytes = file.getBytes();
-            // ImageIO 支持 jpg/png/gif/bmp；webp 若本机 JDK 无对应 SPI 会返回 null，
-            // 此时跳过比例校验（宁可放过，也不要因为解码器缺失把正常图挡掉）。
             img = ImageIO.read(new ByteArrayInputStream(bytes));
         } catch (IOException e) {
             throw new BizException(400, "图片读取失败：" + e.getMessage());
         }
 
         if (img == null) {
-            log.warn("[Upload] 无法解码图片，跳过比例校验：{}", file.getOriginalFilename());
+            log.warn("[Upload] 无法解码图片，跳过比例校验：{}", originalName);
             return;
         }
 
@@ -109,75 +240,16 @@ public class UploadService {
         }
     }
 
-    /**
-     * 保存上传的图片，返回<b>可直接给前端用的相对 URL</b>。
-     *
-     * <p>返回值形如 {@code /api/uploads/banner/2026/10/09/3f2a...c1.png}。
-     * 前端拼上请求 baseURL 即可访问；数据库中 {@code banner.image_url} 存的就是它。
-     *
-     * @param file     上传的文件（由 Spring 的 MultipartFile 接收）
-     * @param subDir   业务子目录，如 {@code banner}。按业务分目录是为了将来清理时
-     *                 能整目录删，而不用按文件名特征去猜
-     * @return 相对 URL（含 context-path）
-     */
-    public String saveImage(MultipartFile file, String subDir) {
-        if (file == null || file.isEmpty()) {
-            throw new BizException(400, "请选择要上传的图片");
-        }
-
-        String original = file.getOriginalFilename();
-        String ext = extensionOf(original);
-        if (!isAllowed(ext)) {
-            throw new BizException(400, "只支持 " + props.getAllowedExtensions() + " 格式的图片");
-        }
-
-        // 大小校验放在扩展名之后：先挡掉明显不对的文件，再做（可能较慢的）大小判断。
-        long maxBytes = props.getMaxSizeMb() * 1024L * 1024L;
-        if (file.getSize() > maxBytes) {
-            throw new BizException(400, "图片不能超过 " + props.getMaxSizeMb() + " MB");
-        }
-
-        String safeSubDir = sanitizeSubDir(subDir);
-
-        // ---------- 比例校验 ----------
-        // 只对 banner 生效：目前只有它有「必须铺满固定比例容器」的需求。
-        // 写成分支而不是每个调用方各自校验，是为了让「首页不会被拉长」这件事
-        // 在后端有一道不可绕过的关口 —— 前端裁剪只是体验优化，不是安全边界。
-        if (SUB_DIR_BANNER.equals(safeSubDir)) {
-            checkBannerRatio(file);
-        }
-
-        String datePath = LocalDate.now().format(DATE_PATH);
-        String fileName = UUID.randomUUID().toString().replace("-", "") + "." + ext;
-
-        Path baseDir = resolveBaseDir();
-        Path targetDir = baseDir.resolve(safeSubDir).resolve(datePath);
-        Path target = targetDir.resolve(fileName);
-
-        // 双保险：normalize 之后仍必须落在 baseDir 之内。
-        // sanitizeSubDir 已经把 '..' 和分隔符去掉了，这一步是防「将来有人改坏了上面」——
-        // 路径穿越是会覆盖任意文件的高危问题，值得多一层断言。
-        if (!target.normalize().startsWith(baseDir.normalize())) {
-            throw new BizException(400, "非法的上传路径");
-        }
-
-        try {
-            Files.createDirectories(targetDir);
-            // REPLACE_EXISTING：UUID 撞名的概率可以忽略，但万一撞上，覆盖比报错合理
-            Files.copy(file.getInputStream(), target, StandardCopyOption.REPLACE_EXISTING);
-        } catch (IOException e) {
-            log.error("[Upload] 写入失败 target={}", target, e);
-            throw new BizException(500, "图片保存失败：" + e.getMessage());
-        }
-
-        String url = props.getUrlPrefix() + "/" + safeSubDir + "/" + datePath + "/" + fileName;
-        log.info("[Upload] 已保存 {} ({} bytes) → {}", original, file.getSize(), url);
-        return url;
-    }
-
-    /** 落盘根目录（绝对化，便于日志与 contains 校验） */
-    public Path resolveBaseDir() {
-        return Paths.get(props.getDir()).toAbsolutePath().normalize();
+    /** 扩展名 → MIME。设置到对象/响应头上，决定浏览器「显示」还是「下载」 */
+    private String contentTypeOf(String ext) {
+        return switch (ext) {
+            case "jpg", "jpeg" -> "image/jpeg";
+            case "png" -> "image/png";
+            case "gif" -> "image/gif";
+            case "webp" -> "image/webp";
+            // 正常走不到（扩展名已过白名单），留个兜底避免返回 null
+            default -> "application/octet-stream";
+        };
     }
 
     /**
@@ -215,7 +287,7 @@ public class UploadService {
      *
      * <p>不用「过滤 '..'」这种黑名单写法 —— 那样 {@code ....//} 之类的变体
      * 需要逐个想全。白名单是「只允许已知安全的字符」，漏不掉。
-     * 本项目的调用方只会传 {@code banner}，所以过滤后为空就回落到默认值。
+     * 本项目的调用方只会传 {@code banner} / {@code avatar}，所以过滤后为空就回落到默认值。
      */
     private String sanitizeSubDir(String subDir) {
         if (subDir == null) {

@@ -70,19 +70,30 @@
           <RightOutlined />
         </button>
       </template>
-    </div>
 
-    <!-- 圆点指示器 -->
-    <div v-if="banners.length > 1" class="dots">
-      <button
-        v-for="(b, i) in banners"
-        :key="b.id"
-        class="dot"
-        type="button"
-        :class="{ active: i === current }"
-        :aria-label="`第 ${i + 1} 张`"
-        @click="goTo(i)"
-      />
+      <!--
+        圆点指示器：已从卡片下方移到**图片内部**，以绝对定位叠加在图片底缘。
+
+        这条改动连带三件事：
+        1. 它不再占据布局高度 —— 卡片高度从此只由图决定，这才是能和左侧卡片
+           对齐的前提（原来图 + 圆点 + 间距三者相加，高度天然比左卡矮一截）。
+        2. 「图片内」意味着它会压在画面内容上，所以必须比图片高一层（z-index），
+           否则会被 .slide-img 的层叠顺序盖住。
+        3. 点击**不会**冒泡到 .slide 的跳转 —— 两者是兄弟节点，不是父子。
+           尽管如此仍显式 stop：将来若有人把 dots 挪进 .slide 里，不加 stop
+           就会变成「点圆点顺带跳走」。
+      -->
+      <div v-if="banners.length > 1" class="dots">
+        <button
+          v-for="(b, i) in banners"
+          :key="b.id"
+          class="dot"
+          type="button"
+          :class="{ active: i === current }"
+          :aria-label="`第 ${i + 1} 张`"
+          @click.stop="goTo(i)"
+        />
+      </div>
     </div>
   </div>
 </template>
@@ -218,41 +229,40 @@ onBeforeUnmount(stopTimer)
 </script>
 
 <style scoped>
+/*
+ * 容器在视觉上必须「不存在」—— 它只负责把图、按钮、圆点竖着排好。
+ *
+ * 这里刻意**没有任何**会被看成「框」的属性：
+ * - 无 background：原先的 --card-bg 白底，就是图片四周那圈白边的直接来源；
+ * - 无 padding：原先 12px 14px 14px 的留白，会让图里外各有一层白；
+ * - 无 box-shadow：阴影会在图外再造一圈边界，图就显得还是「嵌在一张卡里」；
+ * - 无 border-radius：容器已经不可见，圆角只剩「给一个透明盒子倒角」的意义。
+ *
+ * 四角圆角由 .slide 自己承担（overflow: hidden + radius），那是**图片的形态**，
+ * 不是容器的边框 —— 用户要的是去掉白框，不是把图切成直角。
+ */
 .banner-carousel {
-  background: var(--card-bg);
-  /*
-   * 描边已按「纯图片展示」的要求去掉 —— 现在卡片的边界**只由 --shadow-card 定义**。
-   *
-   * 一个直接的后果：阴影是 diffuse 的，边缘不像描边那样有一条硬线。
-   * 在白底与页面渐变交界处，这会让卡片的轮廓比其它卡片「软」一点点。
-   * 这是去掉边框的必然代价，不是阴影没调好；若要硬边就只剩「加回 1px 描边」这一条路。
-   */
-  border-radius: var(--radius-sm);
-  box-shadow: var(--shadow-card);
-  /*
-   * 内边距刻意比左侧「最近一次测评」面板（22px 24px）小一圈。
-   *
-   * 这块面板的主体就是一张图，容器留白多少会**直接**变成图片四周的白边；
-   * 而左侧面板承载的是文字列表，同样的留白是它需要的呼吸感。
-   * 两者「对齐」的直觉在这里是错的 —— 图片需要比文字更贴边才不显拥挤。
-   * 12px 14px 是从 22px 24px 收下来的实测值：图片明显变大，卡片外框不变。
-   */
-  padding: 12px 14px 14px;
   display: flex;
   flex-direction: column;
   /*
-   * 关键：不要让卡片被拉伸到整行高度。
+   * 高度**跟随左侧卡片**（按需求：两者底边对齐）。
    *
-   * .bottom 是 grid，两列的行高取 max(左卡, 右卡)。实测左卡（最近一次测评，
-   * 含 RiskScale + 时间）约 290–310px，而右卡自身内容只有 ~277px —— 差出的
-   * 那 15–35px 会全部堆在**圆点下方**，看起来就是「图片下面留白很多」。
+   * 实现方式是反向的：这里不给自己定高，而是接受 grid 行高的拉伸。
+   * .bottom 的行高 = max(左卡, 右卡)，左卡（最近一次测评，含 RiskScale + 时间）
+   * 实测约 290–310px，恒高于 banner 自身内容，所以行高实际由左卡决定 ——
+   * 本项 stretch 到行高，就等于「和左卡一样高」。
    *
-   * 那根本不是 padding 的问题（底部 padding 只有 14px），是 grid 的默认
-   * stretch 造成的死空间。align-self: start 让卡片高度回归自身内容，
-   * 底部白边随之消失。代价是两张卡底部不再齐平 —— 但对「图片」来说，
-   * 不出现空洞远比和旁边卡片底部对齐重要。
+   * ⚠️ 与上一版**方向相反**：上一版刻意 align-self: start 避免被拉伸，
+   * 那时是因为卡片有白底+内边距，多出来的高度会显示成图片下方的白边；
+   * 现在容器透明、高度就是图片高度，拉伸反而正是想要的「对齐」。
+   * **不要凭「怕变形」的直觉把它改回 start** —— 那会立刻退回「banner 比左卡矮一截」。
    */
-  align-self: start;
+  align-self: stretch;
+  /*
+   * flex 子项默认 min-height: auto，会让内容「撑住」而不允许收缩。
+   * 配合下方 .carousel-stage 的 flex: 1，这里是让 stage 能真正被拉伸的前提。
+   */
+  min-height: 0;
 }
 
 /*
@@ -263,27 +273,26 @@ onBeforeUnmount(stopTimer)
 
 /* ---------- 舞台 ---------- */
 /*
- * 轮播区比例的唯一真源是 --banner-ratio（2.5:1）。
+ * 轮播区：吃掉容器剩余的全部高度。
  *
- * 为什么必须在这里定比例，而不是让图片自己决定高度：
- * 「图片撑开容器」在首页是灾难 —— 轮播列实宽约 543px，一张 1080×1920 的竖图
- * 会让这一格涨到 970px 左右，整个首页被顶下去两屏。
+ * 比例不再由这里定义 —— 高度是「外部给」的（grid 行高 = 左卡高度），
+ * 所以本层只负责撑满，比例交给图片的 object-fit: cover 去适配。
  *
- * 为什么用 aspect-ratio 而不是 max-height：
- * max-height 只是「封顶」。图不够高时（比如 6:1 的细长图）容器缩到 90px，
- * 图被压得又扁又变形；而 aspect-ratio 是让**容器比例固定**，图由
- * object-fit: cover 去等比裁剪 —— 不管原图什么比例，看到的都是一张
- * 不变形的、取中间的 2.5:1 画面。
+ * 这也意味着**图片的显示比例会随屏幕宽度浮动**：左卡在不同宽度下因文字换行
+ * 高度略有变化，banner 跟着变。这是「与左卡对齐」的必然结果，不是抖动 ——
+ * 若哪天要求回到固定的 2.5:1，就必须同时放弃底边对齐，二者不可兼得。
  */
 .carousel-stage {
   position: relative;
   flex: 1;
+  /* flex 默认 min-height: auto，不置 0 时 stage 会被图片内容撑住、无法收缩 */
+  min-height: 0;
 }
 
 .slide {
   position: relative;
-  /* 比例只在这里定义一次；不写 height，否则会和 aspect-ratio 打架 */
-  aspect-ratio: var(--banner-ratio);
+  /* 高度来自父级拉伸，不再用 aspect-ratio —— 两者同时写会互相打架 */
+  height: 100%;
   width: 100%;
   border-radius: var(--radius-sm);
   overflow: hidden;
@@ -294,7 +303,21 @@ onBeforeUnmount(stopTimer)
   cursor: pointer;
 }
 
+/*
+ * ⚠️ 图片必须**脱离文档流**（absolute + inset: 0），这不是为了定位，是为了高度。
+ *
+ * 若留在普通流里：slide 的高度 = 100%（依赖 stage），而 stage 在 grid 计算行高时
+ * 还没有被拉伸，百分比无基准 → 退化成 auto → 图片按自身比例算出高度（宽 543、
+ * 比例 1.79 → 约 303px）→ **banner 的贡献高度反而超过左卡**（约 290px）→
+ * 行高被 banner 顶大 → 最终两张卡一样高，但都比「左卡自身高度」高，
+ * 而且会随图片比例变化。表现就是「对齐看起来差一点，换张图又变一个值」。
+ *
+ * 改成 absolute 后，图片不再贡献高度：banner 的内容高度是 0，
+ * grid 行高完全由左卡决定，stretch 之后才是真正的「和左卡一样高」。
+ */
 .slide-img {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   /* cover = 短边铺满、长边居中裁掉，绝不拉伸变形 */
@@ -315,9 +338,11 @@ onBeforeUnmount(stopTimer)
  * 标题现在只在管理端列表里出现（运营需要靠它区分条目）。
  */
 
-/* 图片损坏时的占位：背景用主题色，文字用标题，至少信息不丢 */
+/* 图片损坏时的占位：同样 absolute，理由与 .slide-img 一致 —— 它也不能贡献高度，
+   否则「有图」和「图挂了」两种状态下列宽相同、行高不同，会出现同样的错位。 */
 .slide-fallback {
-  height: 100%;
+  position: absolute;
+  inset: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -377,36 +402,75 @@ onBeforeUnmount(stopTimer)
 }
 
 /* ---------- 圆点 ---------- */
+/*
+ * 绝对定位叠加在图片底部居中（DOM 上位于 .slide 之后，所以天然压在图上）。
+ *
+ * 三点注意：
+ * - `left: 50% + translateX(-50%)` 而不是 `left: 0 + right: 0 + margin: auto`：
+ *   前者不会把容器拉成整行宽，鼠标悬停范围就只在点附近，不会挡住图片的点击跳转。
+ * - 不写 margin-top —— 它已经脱离文档流，任何外边距都对布局无效，只会误导后来者。
+ * - z-index 显式给：.slide-img 上有 transform（悬停缩放），会建立层叠上下文，
+ *   依赖默认顺序在个别浏览器/特定合成层下不够稳。
+ */
 .dots {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  margin-top: 10px;
+  z-index: 2;
 }
 
+/*
+ * 圆点形状：inactive 与 active 都是正圆，靠**颜色 + 轻微放大**区分。
+ *
+ * 上一版 active 是 16px 宽的胶囊（--radius-pill），按「改为圆点」的要求取消。
+ * 放大用 transform 而不是改 width —— 后者会让相邻点跟着位移，切换时整排会轻微抖动。
+ *
+ * 颜色**保持原样**：inactive 仍是 --card-border，active 仍是 --primary。
+ * 叠加到图片上之后，浅灰点在浅色画面里会看不清，所以只加了一层**投影**
+ * （见下方 box-shadow）—— 投影不是填充色，不改变圆点本身的颜色。
+ */
 .dot {
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
   padding: 0;
   border: none;
   border-radius: 50%;
   background: var(--card-border);
+  /* 浅底图上靠投影勾出轮廓；深底图上投影几乎不可见，浅色填充本身已足够 */
+  box-shadow: 0 1px 3px rgb(0 0 0 / 35%);
   cursor: pointer;
-  transition: width var(--dur) var(--ease), background var(--dur) var(--ease);
+  transition:
+    transform var(--dur) var(--ease),
+    background var(--dur) var(--ease);
 }
 
 .dot.active {
-  width: 16px;
-  border-radius: var(--radius-pill);
   background: var(--primary);
+  transform: scale(1.3);
+}
+
+/* 键盘可达性：叠加在图片上之后，焦点圈必须足够明显，否则 Tab 到这里等于没有反馈 */
+.dot:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
 }
 
 /* ---------- 空态 / 骨架 ---------- */
-/* 空态沿用轮播的固定比例：否则「有 banner」和「没 banner」两种状态下
-   右侧面板高度不一致，页面在数据到达的瞬间会跳一下 */
+/*
+ * 两者都改成 flex: 1 —— 与图片态保持同一套高度规则。
+ *
+ * 上一版靠 aspect-ratio 定高。现在容器高度由「左侧卡片」决定，
+ * 空态若还按比例算高度，就会出现「有 banner 时高、没 banner 时矮一截」，
+ * 数据到达的瞬间整页跳一下。改成 flex: 1 后三条分支高度完全一致。
+ */
 .carousel-empty {
-  aspect-ratio: var(--banner-ratio);
+  flex: 1;
+  min-height: 0;
   width: 100%;
   display: flex;
   flex-direction: column;
@@ -429,11 +493,53 @@ onBeforeUnmount(stopTimer)
 }
 
 .carousel-skeleton {
-  /* 同上：骨架屏也占满同一块高度，避免加载完成时布局抖动 */
-  aspect-ratio: var(--banner-ratio);
+  flex: 1;
+  min-height: 0;
   width: 100%;
   display: flex;
   align-items: center;
   overflow: hidden;
+}
+
+/*
+ * ---------- 单列布局回退 ----------
+ *
+ * 1100px 以下 Home.vue 把 .bottom 改成单列，此时**右侧没有「左卡」可以对齐**：
+ * 容器高度由自身内容决定，而内容（stage flex: 1）又要靠容器高度 —— 互相依赖，
+ * 结果是高度塌成 0，图片整个消失。
+ *
+ * 所以这个断点必须把固定比例还回来。判据很简单：
+ * 「有没有并排的卡片」决定用拉伸还是用比例，不能一套规则走到底。
+ */
+@media (max-width: 1100px) {
+  .banner-carousel {
+    /* auto = 继承父级 .bottom 的 align-items: start，高度回归自身内容 */
+    align-self: auto;
+  }
+
+  /*
+   * ⚠️ 这一条不能漏。
+   *
+   * 桌面端 stage 是 `flex: 1`（= `flex: 1 1 0%`），它靠**父容器有确定高度**才能
+   * 被拉伸。单列后父容器高度变成 auto（由内容决定），此时 flex-basis: 0 会让
+   * stage 的 hypothetical 高度算成 0 —— 而 slide 又是绝对高度来源，
+   * 于是整块塌成 0 高、图片完全消失。
+   *
+   * 改回 `flex: 0 0 auto`：高度交还给内容（slide 的 aspect-ratio）。
+   */
+  .carousel-stage {
+    flex: 0 0 auto;
+  }
+
+  .slide {
+    aspect-ratio: var(--banner-ratio);
+    height: auto;
+  }
+
+  .carousel-empty,
+  .carousel-skeleton {
+    flex: 0 0 auto;
+    aspect-ratio: var(--banner-ratio);
+  }
 }
 </style>

@@ -24,6 +24,16 @@ public class LoginResponse {
     private String realName;
     /** RESIDENT / DOCTOR / ADMIN */
     private String role;
+
+    /**
+     * 头像相对 URL，null = 未设置（前端回落角色图标）。
+     * <p>
+     * <b>后加字段</b>（2026-10）：只加不改，前四个字段与 role 的契约未动。
+     * 放在登录响应里而不是让前端登录后再查一次 {@code /profile/me}，
+     * 是为了让侧栏头像在<b>首屏</b>就有值 —— 否则每个页面加载都会先闪一下
+     * 默认图标再换成真实头像，这个闪烁在固定位置的侧栏上非常显眼。
+     */
+    private String avatarUrl;
     /** 角色差异化信息：医生 department、管理员 adminLevel 等，可为 null */
     private Map<String, Object> extra;
 }

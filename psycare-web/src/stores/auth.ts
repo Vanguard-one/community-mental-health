@@ -34,6 +34,8 @@ export const useAuthStore = defineStore('auth', () => {
   const userId = computed(() => userInfo.value?.userId ?? null)
   /** 角色差异化信息（医生科室、管理员分级等），登录时由后端按角色表带出 */
   const extra = computed(() => userInfo.value?.extra || null)
+  /** 头像 URL。空串而非 null —— 模板里 `v-if` / `:src` 对空串的处理更省心 */
+  const avatarUrl = computed(() => userInfo.value?.avatarUrl || '')
 
   /**
    * 登录。
@@ -57,6 +59,36 @@ export const useAuthStore = defineStore('auth', () => {
   /** 医生注册：返回 auditStatus=PENDING，需管理员审核后才能登录 */
   async function registerDoctor(payload: DoctorRegisterPayload) {
     return registerDoctorApi(payload)
+  }
+
+  /**
+   * 资料保存成功后，把结果同步回本地状态。
+   *
+   * <h3>为什么要写一个 action，而不是让面板直接改 store.userInfo</h3>
+   * <p>avatarUrl / realName / username 这三个字段有两个落点：内存里的
+   * `userInfo` 和 localStorage 里的 `userInfo`。只改前者，刷新页面就回到旧值
+   * （表现为「改完是好的，第二天打开又变回去了」）；只改后者，当前页面不刷新
+   * 仍然显示旧头像。两处必须成对更新，所以收进一个方法，避免调用方漏写一半。
+   *
+   * <h3>为什么不整体替换成接口返回值</h3>
+   * <p>`ProfileVO` 里没有 `token` 与 `extra`（医生科室 / 管理员分级是登录时
+   * 按角色表带出的，资料接口不重复下发）。整体替换会把 token 冲掉，
+   * 直接导致下一次请求 401。
+   *
+   * <h3>为什么用户名变了也不重新登录</h3>
+   * <p>token 的 subject 是 userId，username 只是附带声明；鉴权过滤器只认
+   * subject 与 role，所以改登录名不影响当前会话。若强行登出，
+   * 用户会以为「改个名字就被踢了」而不敢用这个功能。
+   */
+  function applyProfile(next: { username: string; realName: string; avatarUrl: string | null }) {
+    if (!userInfo.value) return
+    userInfo.value = {
+      ...userInfo.value,
+      username: next.username,
+      realName: next.realName,
+      avatarUrl: next.avatarUrl,
+    }
+    localStorage.setItem('userInfo', JSON.stringify(userInfo.value))
   }
 
   async function logout() {
@@ -94,9 +126,11 @@ export const useAuthStore = defineStore('auth', () => {
     realName,
     userId,
     extra,
+    avatarUrl,
     login,
     registerResident,
     registerDoctor,
+    applyProfile,
     logout,
   }
 })

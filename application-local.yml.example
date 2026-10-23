@@ -14,3 +14,18 @@ psycare:
   embedding:
     # 阿里云百炼控制台创建（注意选中国区，Key 与地域绑定，配错表现为 401）
     api-key: sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  upload:
+    # 图片存储后端：local（本机磁盘，默认）/ oss（阿里云对象存储）
+    provider: local
+    # 切 oss 时把上面改成 oss，并填全下面 5 项。少任何一项后端会启动失败并点名缺哪个。
+    oss:
+      # 裸域名，不带 https://，且必须与 bucket 所在地域一致
+      endpoint: oss-cn-hangzhou.aliyuncs.com
+      bucket: your-bucket-name
+      # 必须带 https://；bucket 读写权限需为「公共读」（图片由浏览器直连拉取）
+      public-domain: https://your-bucket-name.oss-cn-hangzhou.aliyuncs.com
+      # RAM 子账号密钥，权限只给本 bucket 的 PutObject + GetObject
+      access-key-id: LTAIxxxxxxxxxxxxxxxx
+      access-key-secret: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+      # 单环境留空；一个 bucket 跑多环境时填 prod / dev
+      key-prefix:

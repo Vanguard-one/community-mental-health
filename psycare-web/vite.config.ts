@@ -40,6 +40,7 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
+      allowedHosts: ['650aaa51.r8.cpolar.cn'],
   },
   build: {
     rollupOptions: {

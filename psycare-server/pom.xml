@@ -21,6 +21,7 @@
         <java.version>17</java.version>
         <mybatis-plus.version>3.5.7</mybatis-plus.version>
         <jjwt.version>0.12.6</jjwt.version>
+        <aliyun-oss.version>3.18.4</aliyun-oss.version>
     </properties>
 
     <dependencies>
@@ -78,6 +79,26 @@
             <groupId>com.mysql</groupId>
             <artifactId>mysql-connector-j</artifactId>
             <scope>runtime</scope>
+        </dependency>
+        <!-- 阿里云对象存储（图片上传的可选后端，由 psycare.upload.provider 决定是否启用）。
+             走「后端代传」而非前端直传：直传会绕开服务端的宽高比 / 大小 / 扩展名三道校验。
+             ⚠️ 引入的传递依赖里带 httpclient 4.5.13 —— 与 Spring Boot 管理的 httpclient5
+                是两套并存的东西（包名不同），不冲突，不要为了"统一版本"去 exclude。 -->
+        <dependency>
+            <groupId>com.aliyun.oss</groupId>
+            <artifactId>aliyun-sdk-oss</artifactId>
+            <version>${aliyun-oss.version}</version>
+            <exclusions>
+                <!-- httpclient 带进来的 commons-logging 会与 Spring 的 spring-jcl 抢
+                     org.apache.commons.logging 包，启动时报
+                     "Standard Commons Logging discovery in action with spring-jcl:
+                      please remove commons-logging.jar from classpath"。
+                     spring-jcl 已提供同名包与类，排除后一切照常 —— 这是 Spring Boot 的标准做法。 -->
+                <exclusion>
+                    <groupId>commons-logging</groupId>
+                    <artifactId>commons-logging</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <!-- 密码加密（仅 crypto，不引入完整 Spring Security） -->
         <dependency>

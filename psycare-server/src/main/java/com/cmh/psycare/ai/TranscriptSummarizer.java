@@ -6,6 +6,7 @@ import com.cmh.psycare.entity.ConsultMessage;
 import com.cmh.psycare.entity.ConsultSession;
 import com.cmh.psycare.mapper.ConsultMessageMapper;
 import com.cmh.psycare.mapper.ConsultSessionMapper;
+import com.cmh.psycare.service.AiUsageRecorder;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -51,6 +52,15 @@ public class TranscriptSummarizer {
     private final ConsultSessionMapper sessionMapper;
     private final AiChatClient aiChatClient;
     private final LlmProperties props;
+    /**
+     * 摘要用量的落表入口。
+     *
+     * <p>⚠️ 这是 {@code ai} 包对 {@code service} 包的一次反向依赖（其余 ai 类都不依赖
+     * service）。接受它的理由：摘要是在这里发起的调用，用量只有这里拿得到；
+     * 若把记录职责上推给调用方（{@code AiConsultService}），异步任务的结果就永远回不到
+     * 已经结束的请求里去。{@code AiUsageRecorder} 只依赖 mapper 与配置，无循环依赖。
+     */
+    private final AiUsageRecorder usageRecorder;
 
     /** 同一会话同一时刻只允许一个压缩任务，避免并发把同一批消息压两遍 */
     private final Set<Long> inFlight = ConcurrentHashMap.newKeySet();
@@ -106,6 +116,7 @@ public class TranscriptSummarizer {
     /** 真正干活：读消息 → 调模型 → 只更新 summary 列 */
     void compress(ConsultSession session) {
         Long sessionId = session.getId();
+        long startedAt = System.currentTimeMillis();
         List<ConsultMessage> all = messageMapper.selectList(
                 new LambdaQueryWrapper<ConsultMessage>()
                         .eq(ConsultMessage::getSessionId, sessionId)
@@ -126,13 +137,18 @@ public class TranscriptSummarizer {
             input.append(who).append('：').append(clip(m.getContent(), PER_MESSAGE_CHARS)).append('\n');
         }
 
-        String summary = aiChatClient.complete(List.of(
+        LlmCompletion completion = aiChatClient.complete(List.of(
                 ChatMessage.system(PromptAssets.SUMMARY_SYSTEM),
                 ChatMessage.user(input.toString()))).block();
+        String summary = completion == null ? null : completion.content();
         if (summary == null || summary.isBlank()) {
             log.warn("[AI 摘要] 模型未返回内容，跳过写入 session={}", sessionId);
             return;
         }
+        // 摘要同样是计费的模型调用，用量必须落表（kind=SUMMARY）。
+        // 首帧对非流式没有意义，传 null；总耗时按整段 HTTP 往返记。
+        usageRecorder.record(sessionId, session.getResidentId(), "SUMMARY",
+                completion.usage(), null, (int) (System.currentTimeMillis() - startedAt), null);
 
         // 只更新 summary 列：用 updateById 会把整个实体写回去，
         // 期间若会话已被关闭（status=CLOSED），这次写入会把它改回 OPEN —— 静默的状态回滚

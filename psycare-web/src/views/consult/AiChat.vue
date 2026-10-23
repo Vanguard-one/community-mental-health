@@ -1,61 +1,76 @@
 <template>
   <div class="chat-page">
+    <!--
+      ==================== 背景：马赛克透镜 ====================
+
+      与登录页**同一个组件**（components/MosaicLens.vue，双通道 WebGL2），
+      只是换了输入色和参数 —— 配色另走 `--lens-chat-*`（tokens.css），
+      不覆盖登录页那三个 `--lens-*`。
+
+      参数取 Originkit 预设：speed 47（≈ 原速）、size 153（构图缩放）、
+      tile 6px（基础格子）、hover 82 / reach 187（指针透镜的强度与半径）。
+
+      `dpr-cap="1.5"` 是本页特有的节流：本页压着三块 backdrop-filter 玻璃、
+      一整圈大半径阴影、还有会滚动的正文，pass 2 的填充率必须让一让。
+      马赛克本来就是碎格，少 25% 分辨率看不出来。
+
+      ⚠️ 三条不能动的约束：
+      1. 这一层必须 `pointer-events: none` —— 组件内部监听的是 window 的
+         pointermove，不依赖 canvas 命中，所以挡不挡点击与「透镜跟不跟手」无关；
+      2. `.chat-page` 从此**不再透出 body 的 --app-bg**（canvas 是不透明的），
+         要改底色就改 `--lens-chat-bg`，不要再往 `.chat-page` 上叠背景
+         （叠了就变成两块颜色，正是前几轮反复撤掉的那类问题）；
+      3. 白纱（`.chat-lens-veil`）只压浓度、不改色 —— 它是整层均一的
+         `color-mix`，不会产生任何接缝。
+    -->
+    <div class="chat-lens" aria-hidden="true">
+      <MosaicLens :speed="47" :size="153" :tile-size="6" :hover="82" :reach="187" :dpr-cap="1.5" />
+      <div class="chat-lens-veil"></div>
+    </div>
+
     <!-- ============ 左：对话 ============ -->
     <section class="chat-main">
-      <header class="chat-head">
-        <div class="chat-head-id">
-          <!--
-            AI 身份标记：AI 助手图标 + 一圈缓慢外扩的柔光涟漪。
-            用意是「把在线/工作中这件事做在图形上，而不是写成一行字」——
-            省掉一句文案，同时给界面一个会呼吸的焦点。
-            图标本身由 `RoleAvatar` 统一提供，与消息气泡、顶栏账号头像同一套。
-          -->
-          <RoleAvatar class="ai-mark" role="ai" :size="48" />
-          <!--
-            标题与状态说明合并成一行。相比原来的两行式（第二行「● #68 · 内容仅用于本次咨询」）改了两点：
-              ① **去掉会话号** —— 它是后端的内部 id，用户既看不懂也用不上；
-                 需要知道的只有「这次对话安不安全、还能不能继续」。
-              ② 剩下的说明改写成**括注**紧跟标题，字号维持 12.5px
-                 （刻意不跟着 18px 的标题变大：它是注解，不是标题的一部分）。
-            在线指示点保留，从第二行挪到标题前 —— 它表达的是「AI 是否在线」这个状态，
-            与注解文字不是一回事，不该跟着一起被吸收进括号里。
-          -->
-          <div class="chat-head-text">
-            <h1 class="chat-title font-serif">
-              <span
-                class="live-dot"
-                :class="{ 'is-off': !chat.sessionId }"
-                aria-hidden="true"
-              ></span>
-              AI 智能问诊<span class="title-note">（{{ headNote }}）</span>
-            </h1>
-          </div>
-        </div>
-        <div class="chat-head-ops">
-          <!--
-            清空记录（次要操作）放在主行动召唤左侧，用描边胶囊与实心胶囊区分权重 ——
-            两者形状同族但视觉重量不同，一眼能看出哪个是「继续往下走」、
-            哪个是「抹掉重来」。用原生 button 而不是 a-button：
-            vendor-antd 预算只剩约 9 kB（硬约定 #9）。
-          -->
-          <button type="button" class="ghost-btn" :disabled="!canClear" @click="openClearDialog">
-            清空会话
-          </button>
-          <!--
-            本页唯一的主行动召唤。原先用的是 a-button（白底灰边 + 6px 小圆角），
-            与旁边的胶囊形按钮形状配色都不成组 —— 改成同一套骨架的实心胶囊。
-            原先并排的「历史会话」入口已随该功能一并移除。
-          -->
-          <button
-            type="button"
-            class="ghost-btn is-solid"
-            :disabled="chat.sessionId === null"
-            @click="onClickRecommend"
-          >
-            推荐医生
-          </button>
-        </div>
-      </header>
+      <!--
+        顶栏已整块移除（2026-10-22 第三轮）。
+
+        原先这里是一条 16×28 内边距的白色横条：左边「AI 智能问诊 + 状态副标题」，
+        右边「清空会话 / 推荐医生」。问题不在内容而在**它的存在本身** ——
+        对话区底色改成页面渐变之后，一条顶到两边的白条会在视口顶部切出一道
+        与整页版式无关的横线；而标题说的「AI 智能问诊」，用户在导航栏点进来时
+        就已经知道了，属于「同一句话说两遍」。
+
+        两个动作按钮移到右栏顶部（见下方 `.side-ops`），状态文案随顶栏一并删除：
+        「会话未建立 / 已结束」这类信息，界面已经用别的信号表达了
+        （空态文案、`.closed-bar`、发送按钮禁用），不需要再占一行字。
+
+        注意：这不是「把顶栏做成透明」—— 那样标题与按钮仍会在渐变上浮着，
+        与目标版式（左区只剩对话内容）依然不同。
+      -->
+
+      <!--
+        窄屏（≤1100px）右栏收成抽屉，这个按钮是唯一的唤出入口。
+        宽屏由 CSS 完全隐藏 —— 那时右栏常驻，没有「打开」这回事。
+        它不再属于某个顶栏，所以走 fixed 悬浮在右上角（见样式）。
+      -->
+      <button
+        type="button"
+        class="btn btn-ghost side-toggle"
+        title="打开信息面板"
+        aria-label="打开信息面板"
+        @click="sideOpen = !sideOpen"
+      >
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <rect x="3" y="4" width="18" height="16" rx="2" />
+          <path d="M15 4v16" />
+        </svg>
+      </button>
 
       <!--
         引导问诊阶段指示条已移除。
@@ -67,6 +82,97 @@
       -->
 
       <!--
+        顶部导航（Radio 组，三个按钮）。
+
+        ⚠️ **现在没有任何功能**：点击只切换本地高亮，不路由、不发请求。
+           接功能时只需把三处 `@click` 换成 `router.push(...)`，其余不用动。
+
+        位置：`position: absolute` 浮在 `.chat-main` 顶部，不占 flex 流。
+        原因和第二十轮把输入区改成浮层是同一个 —— 这一条如果参与排版，
+        消息区就得在它下面再开一块空白，而 `.chat-body` 顶部那 110px 已经
+        是给它留的：110 / 2 - 66 / 2 = 22，菜单正好落在这条带子的正中。
+        滚动时消息从它**下面**穿过去（胶囊自带白底 + 阴影，压得住）。
+
+        语义：`role="group"` + `aria-pressed` 而不是 `role="radiogroup"`。
+        真正的 radiogroup 要求 roving tabindex 与方向键操作，一个还没接线的
+        占位控件不该先背上那套键盘约定；等它真的能切换视图时再换。
+      -->
+      <nav class="chat-nav" aria-label="AI 问诊导航">
+        <div class="nav-menu">
+          <button
+            type="button"
+            class="nav-link"
+            :class="{ 'is-active': activeNav === 'chat' }"
+            :aria-pressed="activeNav === 'chat'"
+            aria-label="对话"
+            @click="activeNav = 'chat'"
+          >
+            <span class="nav-icon" aria-hidden="true">
+              <!--
+                图标换成 AI 星芒（`components/IconAi.vue`，与左侧栏「AI 问诊」同一份几何）。
+                原来这里是气泡 SVG，与「我的消息」「医生咨询」在 22px 下太接近，
+                而这一枚代表的是「AI」，不是「聊天」。
+
+                尺寸不用管：`.nav-icon` 是 22×22，`.nav-icon svg { width/height: 100% }`
+                会盖掉组件里那个 `width="1em"` 的兜底值 —— 子组件根节点同时带父级
+                的 scope 标记，所以这条 scoped 规则能命中。
+              -->
+              <IconAi />
+            </span>
+            <span class="nav-title">对话</span>
+          </button>
+
+          <button
+            type="button"
+            class="nav-link"
+            :class="{ 'is-active': activeNav === 'scale' }"
+            :aria-pressed="activeNav === 'scale'"
+            aria-label="测评"
+            @click="activeNav = 'scale'"
+          >
+            <span class="nav-icon" aria-hidden="true">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M8 6h13M8 12h13M8 18h13" />
+                <path d="M3 6h.01M3 12h.01M3 18h.01" />
+              </svg>
+            </span>
+            <span class="nav-title">测评</span>
+          </button>
+
+          <button
+            type="button"
+            class="nav-link"
+            :class="{ 'is-active': activeNav === 'doctor' }"
+            :aria-pressed="activeNav === 'doctor'"
+            aria-label="医生"
+            @click="activeNav = 'doctor'"
+          >
+            <span class="nav-icon" aria-hidden="true">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                <circle cx="12" cy="7" r="4" />
+              </svg>
+            </span>
+            <span class="nav-title">医生</span>
+          </button>
+        </div>
+      </nav>
+
+      <!--
         @scroll 用来记录「用户是否还贴着底部」（见 onBodyScroll）。
         它只在用户**主动**滚动时反映真实意图 —— 程序滚动触发的事件里
         nearBottom() 为 true，回写 stickToBottom 也是 true，不会自相矛盾。
@@ -76,13 +182,26 @@
           <!--
             空态原有一行标题「你好，我是 PsyCare AI 咨询助手」，已删除 ——
             它与顶栏的「AI 智能问诊」说的是同一件事，属于「同一句话讲两遍」。
-            改用一个缓慢自转的光核承接注意力：图形负责表达「我在」，文案只负责
-            说清「能做什么 + 这里安全」，信息密度上去了，字反而少了。
+
+            图形本身又换过一版：原来是「柔光 + 细环 + 蓝色实心圆（AI 两个字）」
+            的三层光核，现在是**点阵粒子球**（components/OrbNoise.vue）。
+            换的理由是那三个字其实没有信息量 —— 顶栏写着 AI，气泡头像也是 AI，
+            再立一块写着「AI」的牌子是第三次重复；而一颗自转的粒子球不解释任何事，
+            只表达「有东西在」，注意力交给下面那句「这里不评判、不贴标签」。
+
+            底下那层 halo 留着：粒子是半透明的小点，直接压在马赛克背景上会
+            「散」；一层同色系的柔光把它们兜在一起，球才有体积感。
           -->
           <div class="empty-orb" aria-hidden="true">
             <span class="orb-halo"></span>
-            <span class="orb-ring"></span>
-            <span class="orb-core">AI</span>
+            <OrbNoise
+              class="orb-field"
+              :density="210"
+              :dot-size="105"
+              :speed="32"
+              :spin-turns="1"
+              :dpr-cap="2"
+            />
           </div>
           <p class="empty-desc">说说你最近的感受，这里不评判、不贴标签。</p>
           <div class="empty-tips">
@@ -196,104 +315,263 @@
         </div>
       </div>
 
-      <footer class="chat-input">
+      <!--
+        输入区是**浮层**（2026-10-22 第十八轮）：`position: absolute` 贴在 `.chat-main`
+        底部，消息区在它下面继续滚动并被渐隐隐去（见 `.chat-body` 的 mask）。
+        之前它是 flex 的一行，消息滚到边界就被硬切一刀 —— 那正是用户说的「断层」。
+
+        `ref` 只为量它的高度：消息区的 `padding-bottom` 与渐隐起点都要跟着它走
+        （多行输入、建议行出现、窄屏重排都会让高度变），见 syncFootHeight()。
+      -->
+      <footer ref="footRef" class="chat-input">
         <!-- 已结束的会话（从历史里打开的）只能看不能发：后端对 CLOSED 会话返回 400，
              不提前拦住的话，用户会看到一条「看起来像故障」的报错 -->
         <div v-if="chat.sessionStatus === 'CLOSED'" class="closed-bar">
           <span class="closed-text">该会话已结束，只能查看历史消息。</span>
-          <button type="button" class="ghost-btn is-primary" @click="onNewSession">开启新会话</button>
+          <button type="button" class="btn btn-primary" @click="onNewSession">开启新会话</button>
         </div>
         <template v-else>
           <!--
-            下划线输入框（样式见文件末 .composer / .composer-line）。
-            ⚠️ 必须给 textarea 套一层 `.composer`：那条聚焦渐变的实现是
-            「一条绝对定位、宽度 0 的线，聚焦时铺满容器」，它需要一个
-            `position: relative` 的定位基准，而 a-textarea 自己不能当基准
-            （它的内部结构由 antd 决定，加定位会连带影响自动高度计算）。
-            原始样例用了 `.input:focus + .input-border` 这个相邻兄弟选择器；
-            这里改用 `.composer:focus-within`，理由是相邻兄弟依赖
-            「span 紧挨在 input 后面」这个 DOM 细节，而 antd 的包裹层随时可能变
-            —— `:focus-within` 只看「焦点在不在这个壳里」，与中间的节点结构无关。
+            输入行：负责「与输入胶囊同宽、居中」这一件事。
+
+            宽度是 `--chat-col + --composer-bleed × 2`（比消息列左右各宽 5px，见
+            `.chat-page` 的变量注释）。外扩不是为了好看：输入条是浮在消息之上的一层，
+            边缘与正文严格齐平的话，看上去仍像「正文的一部分」，分不出层级。
+
+            ⚠️ 发送按钮在这一层**之内**（2026-10-22 第五轮），不再并排在外侧：
+            并排时它是「胶囊旁边的一颗圆钮」，按钮落在白胶囊之外；
+            放进来才是一体化的输入条 —— 按钮本身就是胶囊的右端。
           -->
-          <div class="composer">
+          <!--
+            追问建议：贴在输入胶囊**右上方**，2~3 条，右对齐。
+            位置选在输入框上方而不是消息区里，是因为它服务的是「下一句说什么」，
+            视线本该落在输入框附近；右对齐则与发送键同侧，读起来是「往右下走」的动作。
+
+            只做「填入」不做「发送」—— 详见脚本里 applyQuickPrompt 的注释。
+
+            内容来自 `quickPrompts`：AI 回答完以后由后端 `followups` 事件下发，
+            没有就用静态三条兜底。
+
+            ⚠️ 这里**刻意不做换内容的过渡动画**（2026-10-22 第三版）。前两版的
+            `mode="out-in"` + `translateY` 会让人看到一层抹开的「虚影」：
+            chip 上有 `backdrop-filter: blur(8px)`，对带 backdrop 模糊的元素做
+            transform，Chrome 会拿变换前的画面去采背景，合成出来就是重影。
+            现在改成「整行先藏、拿到最终内容再显示」（见 `promptsReady`），
+            一回合最多出现一次，没有可动画的中间态。
+          -->
+          <div
+            v-if="showQuickPrompts"
+            class="quick-row"
+            :class="{ 'quick-row--idle': !promptsReady }"
+          >
+            <button
+              v-for="(q, qi) in quickPrompts"
+              :key="qi"
+              type="button"
+              class="quick-chip"
+              :title="promptsReady ? `填入输入框：${q}` : undefined"
+              @click="applyQuickPrompt(q)"
+            >
+              {{ q }}
+            </button>
+          </div>
+
+          <div class="input-row">
+          <!--
+            输入胶囊（样式见文件末 `.composer`）。
+            它承担四件事：白底、26px 圆角、左右内边距、以及把「输入 / 提示 / 发送」
+            三个子项排成一行。聚焦态由 `.composer:focus-within` 统一表达
+            （整圈描边 + 柔光）—— 胶囊没有底线可铺，不用渐变线那一套。
+
+            `ref` 只为量高度给右下角那颗粒子球用（见 syncComposerOrb）。
+          -->
+          <div ref="composerBoxRef" class="composer">
             <a-textarea
+              ref="composerRef"
               v-model:value="input"
               :auto-size="{ minRows: 1, maxRows: 4 }"
-              placeholder="说说你的感受…（回车发送，Shift+回车换行）"
+              placeholder="说说你的感受…"
               :disabled="!chat.canSend"
               @pressEnter="onSend"
             />
-            <span class="composer-line" aria-hidden="true"></span>
+            <!--
+              快捷键提示从 placeholder 里拆出来，放在胶囊内右侧。
+              为什么：胶囊形输入框的占位符区只有左侧一小段，
+              把「（回车发送，Shift+回车换行）」塞进去会让 placeholder 长到
+              撑满整个输入框，看起来像正文而不是提示；而且这段话是**规则**，
+              与「说说你的感受…」这个引导语不是同一类信息。
+              窄屏由 CSS 隐藏（375px 上两段文字会挤在一起）。
+            -->
+            <span class="composer-hint" aria-hidden="true">回车发送，Shift+回车换行</span>
+            <!--
+              发送按钮（Uiverse / xopc333 样例）。与样例的**四处**差异，都不是单纯换色：
+
+              ① **箭头朝上**：样例的路径指向 +x，配 `rotate(180deg)` 得到「朝左」。
+                 朝上要 `rotate(-90deg)`（CSS 正角是顺时针，负角才是逆时针）。
+
+              ② **滑动方向改纵向**：样例是横向 `translateX(-56px)` —— 朝左的箭头左右换位，
+                 逻辑自洽；但箭头朝上之后若还横向滑动，读起来是「横向平移」而不是「往上送出」。
+                 改成 `flex-direction: column` + `translateY(-44px)`，第二个箭头从下方顶上来。
+
+              ③ **两枚圆环的配色按本项目的蓝色分层**：样例是「浅灰环 → 浅青环」，
+                 那是给深色底的；白胶囊上浅灰环只有 1.1:1，等于没有。
+                 现在静息环 = 主色 55%（看得见、但不抢箭头），悬停环 = 主色实色。
+                 注意**方向与样例一致**：细的让位、实的收进来。
+
+              ④ **补 loading / disabled**：原来是 a-button，这两个状态由 antd 提供；
+                 换成原生 button 之后必须自己做，否则发送期间按钮看不出在工作、
+                 也能被重复点击。见 `.send-spin` 与 `.send-btn:disabled`。
+
+              ⚠️ 环的缩放上限是 1.12 而不是样例的 1.3 —— 按钮只有 44px（样例 56px），
+                 1.3 倍会让环被 `overflow: hidden` 切成四段弧。推导见样式里那段注释。
+            -->
+            <button
+              type="button"
+              class="send-btn"
+              :class="{ 'is-busy': chat.sending }"
+              :disabled="chat.sessionId === null || chat.sending"
+              :aria-label="chat.sending ? '正在发送' : '发送'"
+              :title="chat.sending ? '正在发送' : '发送'"
+              @click="onSend"
+            >
+              <span class="send-box" aria-hidden="true">
+                <span class="send-elem">
+                  <svg viewBox="0 0 46 40" xmlns="http://www.w3.org/2000/svg">
+                    <path
+                      d="M46 20.038c0-.7-.3-1.5-.8-2.1l-16-17c-1.1-1-3.2-1.4-4.4-.3-1.2 1.1-1.2 3.3 0 4.4l11.3 11.9H3c-1.7 0-3 1.3-3 3s1.3 3 3 3h33.1l-11.3 11.9c-1 1-1.2 3.3 0 4.4 1.2 1.1 3.3.8 4.4-.3l16-17c.5-.5.8-1.1.8-1.9z"
+                    />
+                  </svg>
+                </span>
+                <span class="send-elem">
+                  <svg viewBox="0 0 46 40" xmlns="http://www.w3.org/2000/svg">
+                    <path
+                      d="M46 20.038c0-.7-.3-1.5-.8-2.1l-16-17c-1.1-1-3.2-1.4-4.4-.3-1.2 1.1-1.2 3.3 0 4.4l11.3 11.9H3c-1.7 0-3 1.3-3 3s1.3 3 3 3h33.1l-11.3 11.9c-1 1-1.2 3.3 0 4.4 1.2 1.1 3.3.8 4.4-.3l16-17c.5-.5.8-1.1.8-1.9z"
+                    />
+                  </svg>
+                </span>
+              </span>
+              <span class="send-spin" aria-hidden="true"></span>
+            </button>
           </div>
           <!--
-            发送按钮（Uiverse / xopc333 样例改写）。与样例的五处差异，都不是单纯换色：
+            输入框**左侧**的粒子球（只在**已有消息**时出现）。
 
-            ① **箭头朝上**：样例的路径指向 +x，配 `rotate(180deg)` 得到「朝左」。
-               朝上要 `rotate(-90deg)`（CSS 正角是顺时针，负角才是逆时针）。
+            为什么放在这里：空态时那颗大球是「这里什么都没有」的视觉锚点；
+            一旦开始对话，它就该退场 —— 但直接删掉又会让页面左下角重新变成
+            一整片空的渐变。于是缩成一颗小球，落到输入胶囊左侧，成为「AI 在旁边」
+            的在场提示：不占版式空间、不解释任何事，只是让那一侧不至于空。
 
-            ② **滑动方向改纵向**：样例是横向 `translateX(-56px)` —— 朝左的箭头左右换位，
-               逻辑自洽；但箭头朝上之后若还横向滑动，读起来是「横向平移」而不是「往上送出」。
-               改成 `flex-direction: column` + `translateY(-40px)`，第二个箭头从下方顶上来。
-
-            ③ **尺寸 56 → 40**：输入框只有约 38px 高，56px 的圆会把整个输入区顶高一截，
-               且与输入框的底线不在一个基线上。40px 与本页发送区高度对齐。
-
-            ④ **颜色换主色**：样例的 `#f0eeef` 是给深色背景的浅灰环；本项目输入区是白卡，
-               浅灰环在白底上几乎看不见（#f0eeef 对白只有约 1.1:1）。
-               这里环与箭头统一取 `--primary`，悬停换 `--primary-dark`。
-
-            ⑤ **补 loading / disabled**：原来是 a-button，这两个状态由 antd 提供；
-               换成原生 button 之后必须自己做，否则发送期间按钮看不出在工作、
-               也能被重复点击。见 `.send-spin` 与 `.send-btn:disabled`。
+            三个约束：
+              · `v-if="chat.hasMessages"` —— 空态已经有居中的大球，不能同时出现两颗；
+              · `v-if="orbFits"` —— 尺寸/位置是「胶囊左侧 + gap」，而胶囊是居中的，
+                走廊宽度 = 胶囊右/左侧的余量，窗口一窄就没了。硬放会被
+                `.chat-main` 的 `overflow: hidden` 切掉一条边。
+                放不放得下由 syncComposerOrb() 用真实几何量出来，
+                并且**优先缩小球而不是直接隐藏**（见那里的注释）；
+              · 尺寸跟着胶囊走（`--orb-size`，JS 写），所以「高度与输入框持平」
+                在多行输入时也成立，上限 88px 防止输到 4 行时长出一颗巨球。
           -->
-          <button
-            type="button"
-            class="send-btn"
-            :class="{ 'is-busy': chat.sending }"
-            :disabled="chat.sessionId === null || chat.sending"
-            :aria-label="chat.sending ? '正在发送' : '发送'"
-            :title="chat.sending ? '正在发送' : '发送'"
-            @click="onSend"
-          >
-            <span class="send-box" aria-hidden="true">
-              <span class="send-elem">
-                <svg viewBox="0 0 46 40" xmlns="http://www.w3.org/2000/svg">
-                  <path
-                    d="M46 20.038c0-.7-.3-1.5-.8-2.1l-16-17c-1.1-1-3.2-1.4-4.4-.3-1.2 1.1-1.2 3.3 0 4.4l11.3 11.9H3c-1.7 0-3 1.3-3 3s1.3 3 3 3h33.1l-11.3 11.9c-1 1-1.2 3.3 0 4.4 1.2 1.1 3.3.8 4.4-.3l16-17c.5-.5.8-1.1.8-1.9z"
-                  />
-                </svg>
-              </span>
-              <span class="send-elem">
-                <svg viewBox="0 0 46 40" xmlns="http://www.w3.org/2000/svg">
-                  <path
-                    d="M46 20.038c0-.7-.3-1.5-.8-2.1l-16-17c-1.1-1-3.2-1.4-4.4-.3-1.2 1.1-1.2 3.3 0 4.4l11.3 11.9H3c-1.7 0-3 1.3-3 3s1.3 3 3 3h33.1l-11.3 11.9c-1 1-1.2 3.3 0 4.4 1.2 1.1 3.3.8 4.4-.3l16-17c.5-.5.8-1.1.8-1.9z"
-                  />
-                </svg>
-              </span>
-            </span>
-            <span class="send-spin" aria-hidden="true"></span>
-          </button>
+          <OrbNoise
+            v-if="chat.hasMessages && orbFits"
+            class="composer-orb"
+            aria-hidden="true"
+            :fill="0.48"
+            :density="120"
+            :dot-size="100"
+            :speed="24"
+            :spin-turns="1"
+            :dpr-cap="2"
+          />
+          </div>
         </template>
       </footer>
     </section>
 
     <!-- ============ 右：上下文 ============ -->
-    <aside class="chat-side">
-      <!-- 关联测评 -->
-      <div v-if="linkedAssessment" class="side-card">
-        <h3 class="side-title">关联测评</h3>
+    <!--
+      `is-open` 只在 ≤1100px 有意义：那时右栏变成从右侧滑出的抽屉（见文件末媒体查询）。
+      宽屏下这层 class 不产生任何样式，右栏就是正常的第三列。
+    -->
+    <aside class="chat-side" :class="{ 'is-open': sideOpen }">
+      <!-- 抽屉态专用关闭键。宽屏隐藏 —— 那时右栏常驻，没有「关闭」这回事。
+           它绝对定位在栏右上角，不占 flex 流，所以不会把下面的按钮组顶下去。 -->
+      <button
+        type="button"
+        class="btn btn-ghost side-close"
+        aria-label="关闭信息面板"
+        @click="sideOpen = false"
+      >
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M18 6 6 18" />
+          <path d="M6 6l12 12" />
+        </svg>
+      </button>
+
+      <!--
+        动作组：清空会话 + 推荐医生。
+
+        位置从顶栏搬到右栏顶部 —— 目标版式里左区只有对话本身，
+        所有「对这次会话的操作」都收进右栏，与上下文卡片排在同一列。
+
+        布局：两枚**等宽**胶囊各占一半，整行铺满栏的左右内边距 ——
+        与下方卡片的左右边缘严格对齐（2026-10-22 第二十七轮，用户指定）。
+        上一版是「按内容宽、右对齐」，理由是「重心贴住推荐医生、不会读成第三张卡片」；
+        实际看下来那一版的上沿参差、左右都缩进，悬在卡片上方像被挤到一边的附注。
+        铺满之后它更像一排「栏级操作」，与卡片同宽同轴，读起来是这一栏的头部。
+
+        用原生 button 而不是 a-button —— vendor-antd 预算只剩约 9 kB（硬约定 #9）。
+      -->
+      <div class="side-ops">
+        <button
+          type="button"
+          class="btn btn-ghost"
+          :disabled="!canClear"
+          @click="openClearDialog"
+        >
+          <span>清空会话</span>
+        </button>
+        <button
+          type="button"
+          class="btn btn-primary"
+          :disabled="chat.sessionId === null"
+          @click="onClickRecommend"
+        >
+          <span>推荐医生</span>
+        </button>
+      </div>
+
+      <!--
+        关联测评 / 最近一次测评。
+
+        2026-10-22 第二十八轮：内容从「本次会话关联的那一条」改成**居民最近一次测评**
+        （表名 + 分数），这样没从结果页发起对话的人也能在右栏看到自己的近况。
+        两条数据不能混用，所以这里刻意分成两个 computed：
+          · `linkedAssessment` —— 本次会话关联的那条，只服务「AI 的依据小字」与危机判定，
+            一旦被「最近一次」顶掉，依据就会指向一次跟这段对话无关的测评；
+          · `latestAssessment` —— 历史里最新的那条，只用于这张卡。
+        卡片脚注也据此分叉：确实是本次关联的那条才写「已作为对话背景」，
+        否则写完成日期（对一条旧记录说「已作为对话背景」是假话）。
+      -->
+      <div v-if="sideAssessment" class="side-card">
+        <h3 class="side-title">最近一次测评</h3>
         <div class="side-row">
-          <span class="side-name">{{ linkedScale?.name ?? '心理自评' }}</span>
-          <RiskLevelTag :level="linkedAssessment.riskLevel" />
+          <span class="side-name">{{ sideScale?.name ?? '心理自评' }}</span>
+          <RiskLevelTag :level="sideAssessment.riskLevel" />
         </div>
         <div class="side-score">
-          <span class="side-score-num mono">{{ linkedAssessment.totalScore }}</span>
-          <span class="side-score-unit">{{ linkedScale ? `/ ${linkedScale.maxScore} 分` : '分' }}</span>
+          <span class="side-score-num mono">{{ sideAssessment.totalScore }}</span>
+          <span class="side-score-unit">{{ sideScale ? `/ ${sideScale.maxScore} 分` : '分' }}</span>
         </div>
-        <p class="side-note">
-          {{ assessmentStatusText }} · 已作为对话背景
-        </p>
+        <p class="side-note">{{ sideNote }}</p>
       </div>
+      <!-- 从未测评过：与改动前完全一致（同样的标题、文案与「去测评」入口） -->
       <div v-else class="side-card is-muted">
         <h3 class="side-title">关联测评</h3>
         <p class="side-note">
@@ -457,19 +735,106 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
+import IconAi from '@/components/IconAi.vue'
+import MosaicLens from '@/components/MosaicLens.vue'
+import OrbNoise from '@/components/OrbNoise.vue'
 import RiskLevelTag from '@/components/RiskLevelTag.vue'
 import RoleAvatar from '@/components/RoleAvatar.vue'
 import { getRecommendDoctors } from '@/api/recommend'
 import { useAssessmentStore } from '@/stores/assessment'
 import { useChatStore } from '@/stores/chat'
 import { RISK_LEVEL_DESC } from '@/types'
-import type { RecommendResult } from '@/types'
+import type { Assessment, RecommendResult } from '@/types'
 
 const PRESET_PROMPTS = [
   '最近总是睡不好，该怎么办？',
   '我该怎么跟医生描述我的情况？',
   '有什么办法能缓解紧张情绪？',
 ]
+
+/**
+ * 追问建议的**静态兜底**（3 条）。
+ *
+ * 正常情况下这里的内容轮不到上场 —— AI 每轮回答完会随 `followups` 事件下发三条
+ * 与刚才那段回答相关的建议（见 `FollowupSuggester`）。但以下几类轮次**不产生**该事件，
+ * 此时必须还有话说，否则输入框上方会突然空出一块：
+ *
+ * - 危机轮次（服务端把回复替换成固定文案，不再引导用户继续追问）；
+ * - 追问生成失败 / 超时（后端 4s 就放弃），或生成的条目全被安全词表拦掉；
+ * - 历史会话回看（建议不落库，`loadSession` 会把它清空）。
+ *
+ * 措辞刻意用「能…吗 / 需要…吗 / 我该怎么…」这类**可直接发送的完整问句**，
+ * 而不是「睡眠」「焦虑」这种标签词 —— 填进输入框后用户可以原样回车，
+ * 也可以在此基础上改几个字，两种用法都成立。
+ */
+const FALLBACK_FOLLOWUPS = [
+  '能给我一个今晚就能试的具体做法吗？',
+  '这种情况需要去看医生吗？',
+  '我该怎么跟家人开口说这件事？',
+]
+
+/**
+ * 当前该显示的三条建议：**动态优先，静态兜底**。
+ *
+ * 不做「语义匹配」也不做占位补齐：后端下发几条就显示几条（可能只有 2 条，
+ * 也可能因为两条太像被去重掉一条）。补空白槽位反而会让用户看见「AI 没想出来」。
+ *
+ * 长度也直接信任后端（已截到 3 条）；这里再 `slice` 一次只是防御 —— 视图不承担
+ * 「多发了怎么办」的兜底责任，但多一行成本换来的是布局不会因为 4 条而换行错位。
+ */
+const quickPrompts = computed<string[]>(() => {
+  const dynamic = chat.followups
+  if (dynamic.length) return dynamic.slice(0, 3)
+  return FALLBACK_FOLLOWUPS
+})
+
+/**
+ * 建议行「有内容可说」的条件：`hasMessages` 保证不与空态那三条开场引导重复；
+ * `sessionStatus !== 'CLOSED'` 保证会话结束后不再劝用户提问（那时候点了也发不出去）。
+ *
+ * 注意它只管**行在不在**，不管**内容亮不亮** —— 后者是 `promptsReady`
+ * （行保持占位，但整行 `visibility: hidden`，所以输入框不会上下跳）。
+ */
+const showQuickPrompts = computed(
+  () => chat.hasMessages && chat.sessionStatus !== 'CLOSED',
+)
+
+/**
+ * 什么时候可以**看见**这三条。
+ *
+ * 一个回合分三段，取值各不相同：
+ *
+ * | 阶段 | sending | followupsPending | 结果 |
+ * |---|---|---|---|
+ * | 正文流式中（"AI 正在思考"） | true | true | 藏 |
+ * | `done` 之后、流关闭前（正在生成建议，1~2s） | false | true | **仍然藏** |
+ * | 流关闭 | false | false | 显示最终内容 |
+ *
+ * 第二行是这次修复的核心。`sending` 在 `done` 就变 false（必须如此，否则输入框被多锁一两秒），
+ * 但那时 `followups` 还是空的 —— 若按 `sending` 判断，会先亮出静态兜底三条、
+ * 一两秒后被真建议替换，用户看到的就是「提示自己变回固定消息了」。
+ * 所以判据必须用 `followupsPending`（挂到整条流关闭），而不是 `sending`。
+ */
+const promptsReady = computed(() => !chat.sending && !chat.followupsPending)
+
+/**
+ * 点击追问建议：**只填入输入框，不自动发送**。
+ *
+ * 为什么不做「点击即发」：这类建议落在输入框紧邻位置，误触概率远高于页面中间的按钮，
+ * 而一条消息一旦发出就收不回来（后端会把它写进会话历史、也会进入 AI 的上下文）。
+ * 填进去之后用户仍可修改措辞、补充细节，回车或不回车由他决定 ——
+ * 这既符合「提升效率」，又不越过「用户没打算发就不发」这条线。
+ *
+ * 覆盖 vs 追加：这里**直接覆盖**。理由是它是一个显式动作（用户点的是具体某句话），
+ * 而「追加」会造出「我最近很焦虑 + 能给我一个今晚就能试的具体做法吗？」
+ * 这种没人会这么说的话；如果用户已经写了草稿，他会自己判断要不要点。
+ */
+function applyQuickPrompt(text: string) {
+  if (chat.sending || chat.sessionStatus === 'CLOSED') return
+  input.value = text
+  // 填入后把焦点交给 textarea，光标落到末尾 —— 用户可以直接改，也可以直接回车
+  nextTick(() => composerRef.value?.focus())
+}
 
 /**
  * 「AI 正在分析」的步骤。顺序即用户能理解的推理链：
@@ -571,7 +936,39 @@ const thinkingText = computed(() => WAIT_COPY[chat.stage.stage] ?? WAIT_COPY_FAL
 const showSlowTip = computed(() => chat.sending && waitTick.value >= SLOW_TIP_SECONDS)
 
 const input = ref('')
+/**
+ * textarea 实例引用，只为一件事：点击追问建议后把焦点交回输入框。
+ *
+ * 类型写成最小接口而不是 `InstanceType<typeof ATexarea>` —— 那样要把 antd 的
+ * 组件类型 import 进来（`TextAreaRef`），而本页其余地方都没有直接依赖 antd 类型，
+ * 为一次 `focus()` 引入它不值得。结构类型只要满足「有 focus 方法」即可。
+ */
+const composerRef = ref<{ focus: (options?: FocusOptions) => void }>()
+/**
+ * 输入胶囊的 DOM 引用，只为给右下角那颗粒子球量尺寸与余量（见 syncComposerOrb）。
+ * 与上面那个分开：一个要的是**组件实例**（focus），一个要的是**盒子**（offsetHeight）。
+ */
+const composerBoxRef = ref<HTMLElement>()
+/**
+ * 粒子球此刻放不放得下。
+ *
+ * <p>初始 `false` 是刻意的：宁可第一帧不出现，也不要先画到边界外再收回来。
+ * `ResizeObserver` 在 observe 时会立刻回调一次（布局已完成、绘制尚未发生），
+ * 所以正常情况下它不会让球「晚一拍」出现。
+ */
+const orbFits = ref(false)
 const bodyRef = ref<HTMLElement>()
+/**
+ * 输入浮层的 DOM 引用，**只用来量高度**。
+ *
+ * <p>消息区要让出这块高度（`padding-bottom`）并按同一数值收渐隐（`mask`），
+ * 而浮层高度不是常量：textarea 从 1 行长到 4 行、追问建议整行出现/隐藏、
+ * ≤560px 的窄屏重排都会改它。写成固定值一定会在某个状态下露出「最后一条消息
+ * 被输入框盖住」或「底部凭空多出一大块空白」。
+ */
+const footRef = ref<HTMLElement>()
+/** 测量器。存在引用里是为了卸载时能断开 —— 不断开等于把 DOM 节点钉在内存里 */
+let footObserver: ResizeObserver | undefined
 const doctors = ref<RecommendResult[]>([])
 const doctorLoading = ref(false)
 
@@ -579,21 +976,41 @@ const doctorLoading = ref(false)
 const analyzing = ref(false)
 const analyzeStep = ref(0)
 
+/**
+ * 右栏抽屉开关（仅 ≤1100px 生效）。
+ *
+ * <p>宽屏时右栏是常驻的第三列，这个 ref 对布局没有任何影响 —— 没有写成
+ * 「根据窗口宽度决定是否渲染右栏」，是因为那样要挂 resize 监听并维护
+ * 一个与 CSS 断点重复的宽度常量（两处阈值一旦不同步就会漏渲染）。
+ * 交给媒体查询做，JS 只负责「用户点了没」。
+ */
+const sideOpen = ref(false)
+
+/**
+ * 顶部导航当前高亮项（占位）。
+ *
+ * <p>`'chat' | 'scale' | 'doctor'` 三选一，**只影响样式，不做任何事** ——
+ * 不路由、不发请求。等接线时把它换成 `activeNav` + `watch` 跳转，或者干脆
+ * 只用路由的 `route.name` 推导（那样刷新后高亮才对得上）。
+ *
+ * <p>默认 `'chat'`：这一页本来就是对话页，进来看见「对话」亮着是符合预期的。
+ */
+const activeNav = ref<'chat' | 'scale' | 'doctor'>('chat')
+
 const topDoctors = computed(() => doctors.value.slice(0, 2))
 
 /**
- * 顶栏标题右侧的状态注解（模板里由全角括号包住）。
+ * ⚠️ `headNote` 已随顶栏一并删除（2026-10-22 第三轮）。
  *
- * 文案由**会话状态**决定，而非会话 id —— 会话号已经去掉，用户需要知道的是
- * 「这次对话安不安全、还能不能继续」这类能指导行动的信息。
- * 四种状态的措辞都收在一句以内，避免括注把 18px 的标题挤成两行。
+ * 它原先给顶栏副标题提供「正在建立会话… / 会话未建立 / 已结束 / 内容仅用于本次咨询」
+ * 四种文案。顶栏移除后这些信息仍有出口，而且更贴身：
+ *   · 「正在建立会话」→ 空态由 `!chat.hasMessages && !chat.opening` 控制，
+ *     建会话期间本来就不显示空态；
+ *   · 「已结束」→ 输入区的 `.closed-bar` 明确写着「该会话已结束」并给出口；
+ *   · 「会话未建立」→ 发送按钮 disabled；
+ *   · 「内容仅用于本次咨询」→ 右栏页脚那句边界声明。
+ * 保留一个没人读的 computed 只会让 `noUnusedLocals` 报错，故直接删掉。
  */
-const headNote = computed(() => {
-  if (chat.opening) return '正在建立会话…'
-  if (!chat.sessionId) return '会话未建立，请稍后重试'
-  if (chat.sessionStatus === 'CLOSED') return '已结束，只能查看'
-  return '内容仅用于本次咨询'
-})
 
 /** 本次会话关联的测评记录（用于右栏上下文卡与「依据」小字） */
 const linkedAssessmentId = computed(() =>
@@ -604,6 +1021,64 @@ const linkedScale = computed(() => {
   const scaleId = linkedAssessment.value?.scaleId
   return scaleId ? store.scales.find((s) => s.id === scaleId) : undefined
 })
+
+/**
+ * 居民**最近一次**测评（右栏「最近一次测评」卡的数据源）。
+ *
+ * <h3>为什么不直接用 `history[0]`</h3>
+ * 接口返回的顺序不是契约的一部分 —— 换个后端实现、加个分页、甚至只改个排序，
+ * 「最近一次」就会静默变成某一次。这里按 `createdAt` 取最大，时间戳相同（同一秒
+ * 提交两次）再按 id 兜底。数据量是「一个居民做过的所有测评」，几十条以内，
+ * 一次线性扫描比排序更省事，也不会每次访问都新建数组。
+ *
+ * <h3>为什么与 `linkedAssessment` 并存而不是替换</h3>
+ * 那个服务于「AI 的依据」与危机判定，必须是**本次会话真正关联**的那条；
+ * 一旦被「最近一次」顶掉，首条回复下方的依据就会指向一次跟这段对话无关的测评。
+ */
+const latestAssessment = computed<Assessment | undefined>(() => {
+  let best: Assessment | undefined
+  for (const a of store.history) {
+    if (!best) {
+      best = a
+      continue
+    }
+    const ta = Date.parse(a.createdAt) || 0
+    const tb = Date.parse(best.createdAt) || 0
+    if (ta > tb || (ta === tb && a.id > best.id)) best = a
+  }
+  return best
+})
+
+/**
+ * 卡片实际展示的那条：优先「最近一次」，历史还没回来（或请求失败）时回落到
+ * 本次会话关联的那条 —— 一次网络失败不该让卡片突然变回「未关联测评」。
+ */
+const sideAssessment = computed(() => latestAssessment.value ?? linkedAssessment.value)
+const sideScale = computed(() => {
+  const scaleId = sideAssessment.value?.scaleId
+  return scaleId ? store.scales.find((s) => s.id === scaleId) : undefined
+})
+
+/** 卡上这条是不是本次会话关联的那条 —— 决定脚注写「已作为对话背景」还是完成日期 */
+const sideIsLinked = computed(
+  () => !!sideAssessment.value && sideAssessment.value.id === linkedAssessment.value?.id,
+)
+
+/**
+ * `2026-10-22T10:30:00` → `10.22`。
+ *
+ * 与 `views/history/AssessmentHistory.vue` 的口径保持一致（那边叫 `monthDay`）：
+ * 300px 的栏宽里塞不下完整时间，而「最近一次」只需要看出新鲜度。
+ * 脏数据（空串 / `0000-00-00`）返回空串，由调用方决定是否省略这段 —— 不要让
+ * `NaN.NaN` 上屏。
+ */
+function monthDay(s: string): string {
+  if (!s || s.length < 10) return ''
+  const mo = Number(s.slice(5, 7))
+  const day = Number(s.slice(8, 10))
+  if (!mo || !day) return ''
+  return `${mo}.${day}`
+}
 
 /** 「依据」只在首条已完成的 AI 回复上出现一次，重复展示没有信息增量 */
 const firstAiIndex = computed(() => chat.messages.findIndex((m) => m.role === 'ai'))
@@ -638,11 +1113,21 @@ const transferPromised = computed(
  * 状态说明。
  * rawLevel（临床五级）与 riskLevel（系统四档）会不一致：危机项阳性时 rawLevel 仍可能是「轻度」。
  * 两者并列展示会自相矛盾，因此危机时直接说明危机项状态。
+ *
+ * 2026-10-22 起改为按**卡片展示的那条**（`sideAssessment`）算，不再是「会话关联的那条」。
  */
-const assessmentStatusText = computed(() => {
-  const a = linkedAssessment.value
+const sideStatusText = computed(() => {
+  const a = sideAssessment.value
   if (!a) return ''
   return a.crisisFlag === 1 ? '危机项阳性，需人工介入' : RISK_LEVEL_DESC[a.riskLevel]
+})
+
+/** 卡片脚注：是本次关联的就写「已作为对话背景」，否则写完成日期 */
+const sideNote = computed(() => {
+  const a = sideAssessment.value
+  if (!a) return ''
+  const when = sideIsLinked.value ? '已作为对话背景' : monthDay(a.createdAt) ? `完成于 ${monthDay(a.createdAt)}` : ''
+  return when ? `${sideStatusText.value} · ${when}` : sideStatusText.value
 })
 
 function firstReason(reason: string) {
@@ -690,6 +1175,101 @@ function doScrollToBottom() {
   const el = bodyRef.value
   if (el) el.scrollTop = el.scrollHeight
 }
+
+/**
+ * 把输入浮层的实际高度写回 CSS 变量 `--chat-foot`。
+ *
+ * <h3>为什么必须量，不能写死</h3>
+ * 输入区是浮层（`position: absolute`），消息区在它下面继续滚动。消息区的
+ * `padding-bottom` 必须是「当前真实值」，否则最后一条消息会被输入框盖住。
+ * 高度会变：textarea 从 1 行到 4 行、追问建议整行显隐、≤560px 重排、
+ * 会话结束时换成 `.closed-bar`。任何一个状态用固定值都会露馅。
+ *
+ * <h3>高度变化后为什么要再滚一次</h3>
+ * `padding-bottom` 变大 = 内容底部下移，原本贴着底部的视图会「差一点点」——
+ * 表现是输入框张开时，最后一行字被推到了浮层后面。
+ * 只在用户本来就贴着底部时才补滚（`stickToBottom`）：他在往上翻旧记录时被拽回底部更糟。
+ *
+ * <h3>顺带同步右下角的粒子球</h3>
+ * 球的尺寸与「放不放得下」都依赖胶囊的当前几何，而这里已经是唯一的
+ * footer 尺寸变化入口（ResizeObserver 同时覆盖窗口缩放与 textarea 长高），
+ * 所以放在这里一起算，不另挂监听。
+ */
+function syncFootHeight() {
+  const el = footRef.value
+  if (!el || !bodyRef.value) return
+  bodyRef.value.style.setProperty('--chat-foot', `${el.offsetHeight}px`)
+  syncComposerOrb()
+  if (stickToBottom) scheduleScrollToBottom()
+}
+
+/* ---------- 输入框左侧的粒子球（尺寸 = 胶囊高度，位置 = 胶囊左侧） ---------- */
+
+/** 球与胶囊之间的间距 */
+const ORB_GAP = 12
+/** 球的下限：再小就没有「点阵」可言，只剩一团噪点 —— 低于它就干脆不显示 */
+const ORB_MIN = 40
+/** 球的上限：textarea 最多 4 行（约 140px），没有上限就会长出一颗巨球 */
+const ORB_MAX = 88
+
+/**
+ * 量出胶囊的几何，决定粒子球的尺寸以及「这一侧还剩不剩地方」。
+ *
+ * <h3>为什么不用媒体查询，而是实测</h3>
+ * 胶囊是 `max-width: var(--chat-col) + bleed×2` 且**居中**的，它左侧的走廊
+ * = `(可用宽 - 胶囊宽) / 2`。这个值既受视口宽度影响，也受右栏是常驻还是抽屉影响
+ * （同一视口宽度下两者差 300px），还与胶囊是否已经顶到 max-width 有关 ——
+ * 用断点抄一遍等于把三套规则重新推导一次，任何一处改了都要同步改常量，
+ * 漏改的症状是「球被 `.chat-main` 的 overflow 切掉一条边」。
+ * 直接读真实盒子：胶囊左缘到 footer 左缘的距离就是走廊宽度，无论布局怎么变都成立。
+ *
+ * <h3>为什么「优先缩小」而不是「放不下就隐藏」</h3>
+ * 走廊宽度随窗口变化：1440 宽时每侧约 150px（够 54px 的球），1280 宽时只剩约 70px，
+ * 更窄时只有那 32px 内边距。第一版判据是「够 54+16 才显示」，结果窗口一窄球就
+ * **整个消失**，看起来像功能没做。现在改成：只要能塞下 `ORB_MIN`（40px）就显示，
+ * 尺寸取 `min(胶囊高, 走廊宽 - 间距)` —— 球会跟着走廊变瘦，但始终在场。
+ */
+function syncComposerOrb() {
+  const foot = footRef.value
+  const box = composerBoxRef.value
+  if (!foot || !box) {
+    orbFits.value = false
+    return
+  }
+
+  /*
+   * 走廊宽度 = 胶囊左缘 - footer 左缘。
+   * 注意**不减 footer 的 paddingLeft**：`.chat-input` 没有底色也没有裁剪，
+   * 内边距那一圈同样是可见区域，球可以踩进去（真减了会在 1280~1340 这一带
+   * 白白藏起一颗本来放得下的球 —— 上一版就是栽在这个多余的减法上的）。
+   */
+  const footRect = foot.getBoundingClientRect()
+  const boxRect = box.getBoundingClientRect()
+  const corridor = boxRect.left - footRect.left
+
+  const room = corridor - ORB_GAP
+  if (room < ORB_MIN) {
+    // 走廊连最小值都放不下（约 1200px 以下）：只能不显示，否则会被切边
+    orbFits.value = false
+    return
+  }
+
+  const size = Math.round(Math.min(ORB_MAX, Math.max(ORB_MIN, Math.min(box.offsetHeight, room))))
+  /*
+   * 写到 footer 上，由 `.composer-orb` 继承（球本身不改布局，不会引起二次测量）。
+   * 尺寸和间距都从这里出去 —— CSS 里那条 `right: calc(100% + var(--orb-gap))`
+   * 与这里的 `room = corridor - ORB_GAP` 必须用同一个数，否则「算着放得下、
+   * 实际却被切掉一条边」（两处各写一个 16 就是这种隐患的温床）。
+   */
+  foot.style.setProperty('--orb-size', `${size}px`)
+  foot.style.setProperty('--orb-gap', `${ORB_GAP}px`)
+  orbFits.value = true
+}
+
+onBeforeUnmount(() => {
+  footObserver?.disconnect()
+  footObserver = undefined
+})
 
 /**
  * 把本帧内的多次滚动请求合并成一次。
@@ -1093,6 +1673,19 @@ async function doClearAndReset() {
 }
 
 onMounted(async () => {
+  /*
+   * 先挂输入浮层的高度观测，再去做网络请求。
+   *
+   * 顺序有讲究：`chat.enter()` 要等接口回来，期间页面已经渲染了首帧 ——
+   * 这一帧的 `--chat-foot` 还是 CSS 兜底值。观测越早挂上，纠正得越早，
+   * 用户看到「最后一条消息被输入框压住」的窗口就越短。
+   * （`ResizeObserver` 在 observe 时会立刻回调一次，所以不用额外先量一遍。）
+   */
+  if (footRef.value && typeof ResizeObserver !== 'undefined') {
+    footObserver = new ResizeObserver(() => syncFootHeight())
+    footObserver.observe(footRef.value)
+  }
+
   const assessmentId = route.query.assessmentId ? Number(route.query.assessmentId) : null
   // 关联测评卡依赖量表与历史，两个请求不阻塞会话建立
   store.loadScales()
@@ -1123,217 +1716,446 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+/*
+ * 页面容器：**满屏铺满**（对齐参考页 `.layout { display: flex; height: 100vh }`）。
+ *
+ * 上一版这里是 `grid` + `max-width: var(--content-max)` 居中 + 16px 内边距 +
+ * `height: calc(100vh - 40px)`，结果是「窗口里浮着一张卡」—— 四边各留一条页面底色，
+ * 与参考页「顶到视口四边」的版式完全不同，也吃掉了约 40px 高度。
+ *
+ * 现在改成 flex 两列 + 100vh：
+ *   · 外层不再限宽/内边距 —— 居民端 `.app-body` 已经给了 64px 的侧栏偏移，
+ *     内容区本身不加 padding（见 DefaultLayout 注释），所以这里能直接顶边。
+ *   · `overflow: hidden` 兜住「输入区随 textarea 长高」这类内部增长，
+ *     避免整页出现第二根滚动条。
+ *   · 高度用 100vh 而不是 `calc(100vh - var(--header-h))`：居民端顶栏已删除。
+ */
 .chat-page {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 320px;
-  gap: 16px;
-  max-width: var(--content-max);
-  margin: 0 auto;
-  padding: 16px var(--content-pad) 24px;
-  /* 100vh 减 40px 是页底留白；顶栏已移入侧栏，不再需要减 --header-h */
-  height: calc(100vh - 40px);
-  min-height: 520px;
-  box-sizing: border-box;
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+  height: 100vh;
+  overflow: hidden;
+  /* 背景层（.chat-lens）是 absolute，必须以本页为定位参照 */
+  position: relative;
+  /*
+   * 对话列的两把尺子（2026-10-22 第十八轮）。
+   *
+   * `--chat-col`：消息列宽。气泡、摘要条、空态都落在这条竖轴上。
+   * `--composer-bleed`：输入浮层比消息列**左右各外扩**的量。
+   *   用户的要求是「输入框长度大于上方聊天消息区 5px」。这里取的是
+   *   **每侧 5px**（总宽 +10）—— 2.5px 一侧在 760 宽的列上属于「改了也看不见」。
+   *   若你要的是总宽只多 5px，把这里改成 2.5px 即可，其它地方全是 `calc`，不用动。
+   *
+   * ⚠️ 三个消费者必须共用这两个变量（`.chat-body > .msg`、`.quick-row`、
+   * `.input-row` / `.closed-bar`）：任何一处硬编码 760，输入框与消息列就会错轴。
+   */
+  --chat-col: 760px;
+  --composer-bleed: 5px;
+  /*
+   * 输入浮层高度的兜底值。真实值由 `syncFootHeight()` 量完写到 `.chat-body`
+   * 的行内样式上（CSS 变量可以逐元素覆盖，所以行内那份会盖掉这里）。
+   * 这个默认值只在「首帧、观测还没回调」的极短窗口里起作用，取的是
+   * 单行输入 + 建议行都在时的近似高度。
+   */
+  --chat-foot: 132px;
+  /*
+   * 「消息在输入区附近渐隐」这套已经**整条撤掉**（2026-10-22 第十九轮，用户明确要求）。
+   *
+   * 原先这里有一个 `--chat-fade: 40px`，配合 `.chat-body` 的 `mask-image` 让消息
+   * 在浮层上沿之前「化掉」。用户的口径是：**不要模糊**，消息往下滑时只有被
+   * 输入框和追问建议**实际盖住**的地方看不到，其余地方都该看得见。
+   *
+   * 所以现在没有渐隐带，遮挡完全由浮层的实体部分（白胶囊、建议 chip）承担。
+   * ⚠️ 不要为了「好看」把它加回来 —— 那会把「遮挡」重新变成「淡化」，
+   * 正是用户这次要撤掉的效果。真要改观感只能改胶囊/chip 的不透明度，
+   * 不能给滚动容器加遮罩。
+   */
+  /*
+   * 白纱浓度：盖在 WebGL 背景之上的一层**均一**白。
+   *
+   * 为什么需要它，而不是让背景原样透出来：
+   *   · 底色 #7ce2e3 是高明度青，光丝峰值接近浅紫 #e7a9fd —— 直接压 `--text-2`
+   *     在峰值区只有约 4.2:1（15px 正文勉强，12px 小字不够）。34% 白把峰值抬到约 5.3:1、
+   *     底色区约 5.9:1，两处都过 AA；
+   *   · 同时把「青 + 紫」两档色拉回本站的低饱和口径，白卡片浮上去不会打架。
+   *
+   * 0 = 原图直出；0.55 以上基本只剩一层浅纹。改的是**浓度**不是颜色，
+   * 整层一个 alpha、没有渐变，所以取任何值都不会产生接缝。
+   */
+  --chat-veil: 34%;
+  /*
+   * 底色**仍然不在这里画** —— 但理由变了（2026-10-22 第 22 批）。
+   *
+   * 旧理由：透出 body 的 --app-bg，避免 135deg 渐变在「视口宽 - 64px 侧栏」
+   * 这个更窄的盒子上重新起算、与其他页面错位。
+   *
+   * 现在：背景换成了 `.chat-lens`（WebGL 马赛克，画布不透明，整层盖住本页）。
+   * body 那层渐变在本页已经**完全看不见**，所以「透出」这件事对本页不再生效，
+   * 但 `transparent` 必须保留：一旦在这里补一层色，它会盖在 canvas 之上，
+   * 变成「一块纯色盖一张图」—— 也就是前几轮反复撤掉的「两块颜色拼起来」。
+   * 要改本页背景，改 `--lens-chat-bg`，不要改这里。
+   *
+   * ⚠️ 与布局层的约定仍然成立（`.app-body` / `.content-layer` 保持无背景）：
+   * 它们若有底色，会从 `.chat-lens` **四周**（比如 1px 抗锯齿缝、或画布还没
+   * 完成首帧的那几十毫秒）透出来。改布局层时记得回来确认。
+   */
+  background: transparent;
+}
+
+/* ---------- 背景层：WebGL 马赛克 ---------- */
+/*
+ * 覆盖整页（含右栏底下的那段），`z-index: 0`。
+ * 右栏 `.chat-side` 是 --card-bg 白面、`z-index: 1`，会把它盖住 —— 这是对的：
+ * 背景只服务消息区，不该从右栏的卡片缝里透出来。
+ *
+ * 三个 `--lens-*` 覆盖：组件内部用 `getComputedStyle(root)` 读这三个名字，
+ * 而自定义属性会从祖先继承，所以在这里赋值即可只影响本页，不动登录页那份。
+ * 值是 `var(--lens-chat-*)`（间接一层）—— 组件对这种写法会再查一层，
+ * 不依赖「浏览器是否替我们展开 var()」这种实现差异。
+ */
+.chat-lens {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  /*
+   * 透镜跟手靠组件内部的 window 级 pointermove，与 canvas 命不命中无关，
+   * 所以可以放心吃掉这一层的指针事件（否则它会挡住下面所有交互）。
+   */
+  pointer-events: none;
+  --lens-bg: var(--lens-chat-bg);
+  --lens-c1: var(--lens-chat-c1);
+  --lens-c2: var(--lens-chat-c2);
+  /* canvas 首帧之前露出的是这个色；与画面底色同值，接手时不会闪一下白 */
+  background-color: var(--lens-chat-bg);
+  overflow: hidden;
+}
+
+/*
+ * 白纱。整层均一 alpha —— **不要在这里加渐变**：
+ * 一旦有了方向，它就会在某个位置形成一条肉眼可辨的「色带结束线」，
+ * 而那正是前几轮反复撤掉的东西（背景连续性的唯一依据是「没有任何拼接」）。
+ */
+.chat-lens-veil {
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--card-bg) var(--chat-veil), transparent);
 }
 
 /* ---------- 对话 ---------- */
 /*
- * 窗口底色 = L1 白卡（2026-10-13 回退）。
- * 前一天试过「铺局部背景图 + 头/输入区毛玻璃 + 消息区透明 + 气泡投影」这一整套，
- * 用户评估后要求换回纯白。⚠️ 这四处是**一套**联动改法，回退必须一起回退 ——
- * 只退底色、留着透明的 .chat-body 和气泡阴影，会得到「没有衬托的浮空气泡」。
+ * 对话主列**没有自己的面**：底色由 `.chat-lens` 提供 → 这里透明。
  *
- * 圆角 --radius-sm(12) → --radius-lg(20)：本页原有的小圆角与「科技感」方向相悖，
- * 也与整站页面级大卡（hero / ScaleCard）的规格不一致。
+ * 上一版它是 --card-bg 的白面，靠「白卡 vs 次面消息区」两层差给气泡当衬托；
+ * 现在整页是一张马赛克图，白气泡浮在它上面（峰谷亮度差约 1.3:1）—— 边界靠
+ * 「1px 描边 + 轻投影」补足（见 .msg.ai .bubble），不再依赖底色差。
+ *
+ * `z-index: 1` 是必须的：`.chat-lens` 是 `position: absolute; z-index: 0`，
+ * 而同值/auto 的定位元素按**树序**决定先后 —— 靠树序太脆（有人把背景层挪到
+ * 模板末尾就全错）。这里写死 1，把「内容在背景之上」变成声明而不是巧合。
  */
 .chat-main {
+  flex: 1;
   display: flex;
   flex-direction: column;
   min-width: 0;
-  background: var(--card-bg);
-  border: 1px solid var(--card-border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-card);
+  background: transparent;
   overflow: hidden;
-}
-
-.chat-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 16px 24px;
-  border-bottom: 1px solid var(--card-border);
-  background: var(--card-bg);
-}
-
-.chat-head-id {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-width: 0;
-}
-
-/* AI 身份标。尺寸与底衬交给 `RoleAvatar`（48px），这里只管两件本页特有的事：
-   ① 定位（涟漪要挂它身上，所以得是 relative）；② 那一圈外扩涟漪。 */
-.ai-mark {
+  /* 输入浮层的定位上下文（它自己 `position: absolute; bottom: 0`） */
   position: relative;
-  flex: none;
+  z-index: 1;
 }
 
-/* 外扩涟漪。周期取 4s —— 比心跳慢、比静止活：在余光里持续存在，
-   但不会把注意力从对话上拽走。科技感不是「动得多」，是「动得克制但从不停」。 */
-.ai-mark::after {
-  content: '';
+/* ---------- 顶部导航（Radio 组，Uiverse / Admin12121） ----------
+ *
+ * 结构：外层 `.chat-nav` 只负责「横向居中 + 浮在顶部」，玻璃胶囊是内层 `.nav-menu`。
+ * 分两层是为了 `pointer-events`：外层铺满整行但**不接收事件**（否则它会把
+ * 消息区顶部一整条横带的点击/选中吃掉），只有菜单本体接。
+ *
+ * 形状与尺寸（第三十轮按用户要求：白卡 → 透明玻璃胶囊，整体收窄拉长）：
+ *   单项 64×44（原 70×50）、悬停展开 120（原 130）、内边距 5（原 8）、1px 描边、
+ *   圆角 `--radius-pill`。整体从 226×66 收到 **204×56**，长宽比 3.42 → 3.64 ——
+ *   所以「更细长」是算出来的，不是错觉。
+ *   高度停在 44 不再往下压：44px 是触控目标的下限，再薄就不好点了。
+ *
+ * ⚠️ 5px 内边距与 44px 高度是**绑死**的一对，不能单独改：
+ *     父胶囊左端内壁半径 = 56 / 2 - 1(描边) - 5(内边距) = 22
+ *     子按钮自身半径     = 44 / 2 = 22
+ *   两者严格同心，悬停/选中的色块才会严丝合缝地贴着胶囊内壁。
+ *   只动其中一个，端点就会露出一条月牙形的缝 —— 用户说的「边缘不整洁」正是这个。
+ *   窄屏那档是同一套算式：50 / 2 - 1 - 4 = 20 = 40 / 2。
+ *
+ * 质感：走 tokens 里**结构性玻璃**那一档（`--chrome-bg-glass` + `--glass-blur`），
+ * 与左侧 64px 窄栏、管理端 56px 顶栏同一套材质，不新造色值（硬约定 #114）。
+ * 不用 `--card-bg-glass`（0.82）：那是内容面的玻璃，比这一档透，压在会动的马赛克上
+ * 会盖不住图标。0.62 这一档实测够用：背后最深的青底穿过 34% 白纱后约 #a9ec，
+ * 玻璃合成面约 #e5f9f9，`--text-2` 仍有约 6.8:1；图标是图形（需 3:1），更宽松。
+ *
+ * 展开时整组会左右各让 28px（宽度 204 → 260，居中排布）—— 这是样例本身的
+ * 行为，不是 bug。觉得悬停时「邻座在动」的话，把 `.nav-link` 的宽度改成固定
+ * 120 并只动 `::before` 与标题即可，代价是静止态三枚图标之间会空出一大片。
+ */
+.chat-nav {
   position: absolute;
-  inset: -3px;
-  border-radius: 50%;
-  border: 1px solid var(--primary);
-  animation: mark-ripple 4s var(--ease) infinite;
-}
-
-@keyframes mark-ripple {
-  0% {
-    transform: scale(0.92);
-    opacity: 0.55;
-  }
-  70%,
-  100% {
-    transform: scale(1.28);
-    opacity: 0;
-  }
-}
-
-/* 标题行：绿点 + 标题 + 括注，三者同处一行。
-   用 flex 而不是 inline 排 —— 6px 的绿点在 18px 文本里靠 vertical-align
-   很难对准（不同字体基线不同），交给 align-items 一次解决。 */
-.chat-title {
+  /* (110 - 56) / 2：110px 是 `.chat-body` 顶部留给这一条的高度，56 是胶囊总高
+     （44 按钮 + 5×2 内边距 + 1×2 描边），上下各 27px 后菜单正好落在带子正中。
+     改胶囊高度必须同步改这里，否则会整体偏上/偏下。 */
+  top: 27px;
+  left: 0;
+  right: 0;
+  z-index: 2;
   display: flex;
-  align-items: center;
-  margin: 0;
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--text-1);
+  justify-content: center;
+  /* 见上：整条横带都不吃事件，只让菜单本体吃 */
+  pointer-events: none;
 }
 
-/* 括注：**紧贴**标题（不留 margin —— 全角括号自带视觉间隙，再加边距会显得松散）。
-   字号写死 12.5px、不继承标题的 18px —— 它是注解，不是标题的一部分。
-   字体显式回落到无衬线：标题走衬线是有意为之的「标题感」，
-   但小字用宋体在屏幕上发虚，这里保持与正文一致的观感。
-   字色退到 --text-3，视觉重心仍落在标题上。 */
-.title-note {
-  font-family: var(--font-sans);
-  font-size: 12.5px;
-  font-weight: 400;
-  color: var(--text-3);
-}
-
-/* 在线指示点。会话未建立时转灰并停掉呼吸 ——
-   一个「一直绿着」的灯，会让旁边「会话未建立」那行字变成谎言 */
-.live-dot {
-  flex: none;
-  width: 6px;
-  height: 6px;
-  margin-right: 7px;
-  border-radius: 50%;
-  background: var(--risk-a);
-  box-shadow: 0 0 0 3px var(--risk-a-soft);
-  animation: live-breathe 2.4s var(--ease) infinite;
-}
-
-.live-dot.is-off {
-  background: var(--text-3);
-  box-shadow: none;
-  animation: none;
-}
-
-@keyframes live-breathe {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.35;
-  }
-}
-
-.chat-head-ops {
+.nav-menu {
+  pointer-events: auto;
   display: flex;
-  align-items: center;
-  gap: 10px;
+  justify-content: center;
+  padding: 5px;
+  /*
+   * 玻璃三件套：半透明底 + backdrop 模糊 + 顶边 1px 内高光。
+   *
+   * `backdrop-filter` 不是美观选项而是可读性的必要条件（实测写在 tokens.css
+   * `--card-bg-glass` 上方）：纯靠 alpha 无论提多白都压不住背后不断变色的马赛克。
+   * `saturate(180%)` 与 `.quick-chip` 取同一值 —— 只 blur 不提饱和会发灰，像磨砂塑料；
+   * `blur(18px)` 直接把背后的图形搅成均匀的明暗，才像玻璃而不是"半透明贴纸"。
+   *
+   * ⚠️ 这一层**绝不加 transform**（硬约定 + 第十七轮那个「发虚」）：Chrome 对带
+   * backdrop 模糊的元素做位移时会拿变换**前**的画面采背景，合成出一层抹开的残影。
+   * 居中的办法是 `justify-content: center`，不是 `translateX(-50%)`。
+   *
+   * 描边沿用 `.quick-chip` 的思路：主色 12% 混进 `--card-border`。纯灰像表单控件，
+   * 纯主色太重；混一点主色相让它与发送键、选中态同族。
+   */
+  background: var(--chrome-bg-glass);
+  backdrop-filter: blur(var(--glass-blur)) saturate(180%);
+  border: 1px solid color-mix(in srgb, var(--primary) 12%, var(--card-border));
+  border-radius: var(--radius-pill);
+  /* 顶边内高光：玻璃的"厚度"。做成变量是因为它必须跟在每一处 box-shadow 里 ——
+     漏掉的话某个状态下顶边高光会消失，玻璃立刻塌成一张透明贴纸。 */
+  --nav-hi: inset 0 1px 0 color-mix(in srgb, var(--card-bg) 92%, transparent);
+  box-shadow:
+    var(--nav-hi),
+    var(--shadow-hover);
 }
 
-/* 原生按钮：vendor-antd 预算只剩约 9 kB，能不加 antd 组件就不加 */
-.ghost-btn {
-  padding: 4px 12px;
-  border: 1px solid var(--card-border);
+.nav-link {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /*
+   * 两档宽度走自定义属性而不是写死：窄屏要整体收小、减动效要「不展开」，
+   * 三个需求落在同一个 `width` 上。写成变量后，「不展开」只要把 open 指回 base
+   * 即可，不需要在每个断点里复制一遍 `width: 64px`（复制的那份迟早会漏改）。
+   *
+   * 圆角必须是 `--radius-pill` 而不是 `--radius-ctrl`：胶囊两端的半圆来自
+   * 「子按钮半径 = 父胶囊内壁半径」这条同心关系（算式见上方导航那段注释）。
+   */
+  --nav-w: 64px;
+  --nav-w-open: 120px;
+  width: var(--nav-w);
+  height: 44px;
+  padding: 0;
+  border: 0;
   border-radius: var(--radius-pill);
   background: transparent;
   color: var(--text-2);
-  font-family: inherit; /* 原生 button 不继承 body 字体，不写会落回系统 UI 字体 */
-  font-size: 13px;
-  white-space: nowrap;
+  font-family: inherit;
   cursor: pointer;
-  transition: all var(--dur) var(--ease);
+  /* 标题被推到按钮外，靠这里裁掉 —— 少了它，静止态会看到三个字挤在图标右边 */
+  overflow: hidden;
+  transform-origin: center left;
+  transition:
+    width 0.2s var(--ease-entry),
+    color var(--dur) var(--ease);
 }
 
-.ghost-btn:hover {
-  border-color: var(--primary);
-  color: var(--primary);
+/* 悬停/聚焦时从右侧滑进来的底色块。
+   `z-index: -1` 能落在按钮**背景之上、图标文字之下**，靠的是 `.nav-link` 自己
+   `position: relative + z-index: 1` 建立了层叠上下文 —— 负值只会沉到这一层的
+   最底，不会掉到父级（玻璃胶囊）下面去。少了 `z-index: 1` 的话它会直接沉到
+   胶囊背后，等于整块底色看不见。 */
+.nav-link::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: var(--radius-pill);
+  /*
+   * 悬停那一片是「再糊一层白」，不是实心色块 —— 玻璃上压实色会立刻穿帮成贴纸。
+   * 58% 与底下的 62% 叠起来约 84% 白：色块边界看得出来，但背后的光还透得出来。
+   */
+  background: color-mix(in srgb, var(--card-bg) 58%, transparent);
+  transform: translateX(100%);
+  transform-origin: center right;
+  transition: transform 0.2s var(--ease-entry);
 }
 
-.ghost-btn.is-primary {
-  border-color: var(--primary);
-  background: var(--primary-soft);
-  /* ⚠️ 主色浅底上的文字必须深一档：--primary 落在 --primary-soft 上只有 4.44，
-     差一点不到 AA 的 4.5；--primary-dark 是 5.76。与风险色阶「soft 底配 ink」
-     同一条判据（全站硬约定）。 */
+.nav-link:hover,
+.nav-link:focus-visible {
+  width: var(--nav-w-open);
+  color: var(--text-1);
+  outline: 0;
+}
+
+.nav-link:hover::before,
+.nav-link:focus-visible::before,
+.nav-link:hover .nav-title,
+.nav-link:focus-visible .nav-title {
+  transform: translateX(0);
+}
+
+.nav-link:hover .nav-title,
+.nav-link:focus-visible .nav-title {
+  opacity: 1;
+}
+
+/* 图标绝对定位在左端：展开时标题往右让，图标不动 —— 否则整枚按钮的内容
+   会随着宽度变化左右晃（样例也是这么处理的）。
+   left 的取值让图标在**静止态 64px 按钮里正好居中**：(64 - 22) / 2 = 21。
+   上一版是 20（对应 70px 宽），收窄后没跟着改会偏左 1px —— 1px 在居中的
+   小图标上看得出来。 */
+.nav-icon {
+  position: absolute;
+  left: 21px;
+  display: block;
+  width: 22px;
+  height: 22px;
+}
+
+.nav-icon svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.nav-title {
+  display: block;
+  width: 100%;
+  /* 让出图标那一格，标题才在「图标右侧的剩余空间」里居中。
+     34 = 2 × (77 - 60)：展开态 120 宽时文字中心落在 77px，
+     图标右缘在 43px，中间留 21px 呼吸 —— 与上一版 130 宽时的手感一致。 */
+  text-indent: 34px;
+  text-align: center;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+  opacity: 0;
+  transform: translateX(100%);
+  transform-origin: center right;
+  transition:
+    transform 0.2s var(--ease-entry),
+    opacity 0.2s var(--ease-entry);
+}
+
+/* 选中态：底色常驻（`--primary-soft`），图标与文字走主色。
+   与 hover 的底色块抢同一个 `::before`，所以选中规则必须写在 hover 之后 ——
+   同特异性下后者胜（#140），否则悬停没选中的项时选中项会被刷成灰白。
+
+   文字色必须是 `--primary-dark` 而不是 `--primary`：`--primary` 落在
+   `--primary-soft` 上只有 4.44:1，不到 AA（硬约定「主色落 soft 一律用 -dark」）。
+   而标题恰好只在悬停/聚焦时才可见，也就是说**唯一会显示出来的那一帧正好是最差的那一帧**。
+   上一版这里写的是 `--primary`，顺手改掉了。
+
+   选中块保持**实心** `--primary-soft`，不做成半透明：它上面要压 13px 的字，
+   一旦透出背后的马赛克，`--primary-dark` 的对比度就变成不确定的了。 */
+.nav-link.is-active {
   color: var(--primary-dark);
 }
 
-/* ---------- 实心主色变体：「推荐医生」（本页的主行动召唤） ---------- */
-.ghost-btn.is-solid {
+.nav-link.is-active::before {
+  transform: translateX(0);
+  background: var(--primary-soft);
+}
+
+/* 减动效（顶部导航）：**必须放在文件末尾**（见下方那一段），这里不再重复。
+   理由：要压掉的是 `width` 展开，而 ≤560 那档也改同一个属性，同特异性只能靠
+   「位置更后」生效 —— 写在这里会被后面的窄屏规则盖掉。 */
+
+/* 顶栏已删除（2026-10-22 第三轮）。
+   原先这里有 .chat-head / .chat-head-text / .chat-title / .chat-subtitle /
+   .live-dot / @keyframes live-breathe / .chat-head-ops 共七段样式。
+   模板里已无对应节点，留着只会编译进 bundle 并让后来者以为界面还有这么一条横条。 */
+
+/* ==================== 按钮：参考页 `.btn` 三件套 ====================
+ * 原生 button 而不是 a-button —— vendor-antd 预算只剩约 9 kB（硬约定 #9）。
+ *
+ * 形状语言从「胶囊」（999 圆角、4×12 内边距）换成参考页的「圆角矩形」
+ * （--radius-ctrl 10 / 8×16 内边距 / 13px·600 / 14px 线性图标）。
+ * 不是纯审美：本页顶栏只有两个按钮，胶囊形在这个尺寸下更像「标签」，
+ * 且与消息气泡的 18px 圆角不成体系；10px 正好是站内「控件」这一档，
+ * 与输入框、标签页、小方块同一族。
+ */
+.btn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  padding: 9px 18px;
+  /*
+   * 圆角回到胶囊（--radius-pill）：目标版式里「清空会话 / 推荐医生」是两枚
+   * 全圆端子，与下方输入胶囊、引导胶囊同一族形状。
+   * 上一轮取 --radius-ctrl(10) 是照另一份参考页搬的，那份页面的按钮是圆角矩形；
+   * 本版以用户给的目标图为准，形状语言统一成「胶囊」。
+   */
+  border-radius: var(--radius-pill);
+  font-family: inherit; /* 原生 button 不继承 body 字体，不写会落回系统 UI 字体 */
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background var(--dur) var(--ease),
+    border-color var(--dur) var(--ease),
+    color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
+}
+
+.btn svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+
+/* 次要：白底 + 描边。悬停只换描边与文字色、**不换底色** ——
+   白卡上换底色会浮出一块与周围不同深浅的补丁。
+   文字取 --primary-dark 而不是 --primary：主色落浅底只有 4.44，不到 AA 4.5。 */
+.btn-ghost {
+  border: 1px solid var(--card-border);
+  background: var(--card-bg);
+  color: var(--text-2);
+}
+
+.btn-ghost:hover:not(:disabled) {
   border-color: var(--primary);
+  color: var(--primary-dark);
+}
+
+/* 主要：实心主色。投影走 --shadow-primary（主色同族，看起来「发亮」而非「发脏」） */
+.btn-primary {
+  border: 1px solid var(--primary);
   background: var(--primary);
   color: var(--on-primary);
-  font-weight: 500;
   box-shadow: var(--shadow-primary);
 }
 
-/* 用 border 拼一个 5×5 的 chevron —— 与工单折叠箭头同一手法，零新增图标依赖 */
-.ghost-btn.is-solid::after {
-  content: '';
-  width: 5px;
-  height: 5px;
-  border-top: 1.5px solid currentColor;
-  border-right: 1.5px solid currentColor;
-  transform: rotate(45deg);
-  transition: transform var(--dur) var(--ease);
-}
-
-/* 必须覆盖 .ghost-btn:hover 的「描边 + 蓝字」—— 实心主色底上蓝字不可读 */
-.ghost-btn.is-solid:hover:not(:disabled) {
+.btn-primary:hover:not(:disabled) {
   border-color: var(--primary-dark);
   background: var(--primary-dark);
-  color: var(--on-primary);
-  box-shadow: var(--shadow-hover);
-  transform: translateY(-1px);
 }
 
-.ghost-btn.is-solid:hover:not(:disabled)::after {
-  transform: rotate(45deg) translate(1px, -1px);
+.btn-primary:active:not(:disabled) {
+  box-shadow: none;
 }
 
-.ghost-btn.is-solid:active:not(:disabled) {
-  transform: translateY(0);
-  box-shadow: var(--shadow-primary);
-}
-
-/* 会话未建立时禁用：退回中性灰面，不保留主色与投影，避免「看起来能点」 */
-.ghost-btn.is-solid:disabled {
+/* 禁用：两个变体统一退回中性灰面，不保留主色与投影，避免「看起来能点」。
+   写在变体之后，靠「特异性更高 + 位置更后」覆盖，不需要 !important。 */
+.btn:disabled {
   border-color: var(--card-border);
   background: var(--panel-bg);
   color: var(--text-3);
@@ -1341,26 +2163,22 @@ onMounted(async () => {
   cursor: not-allowed;
 }
 
-.ghost-btn.is-block {
-  display: block;
-  width: 100%;
-  padding: 8px 12px;
+/* 窄屏唤出右栏的按钮：宽屏下右栏常驻，这个入口不该出现。
+   顶栏删除后它不再有宿主，改为 fixed 悬浮在视口右上角（见 1100 断点）。 */
+.side-toggle {
+  display: none;
 }
 
-/* 描边变体的禁用态。
-   上面那条 :disabled 只覆盖 .is-solid，而「清空会话」是素描边 —— 不补这条，
-   它在禁用时仍带 hover 效果（.ghost-btn:hover 不看 disabled），
-   看起来可点、点了没反应，比灰下去更让人困惑。 */
-.ghost-btn:disabled {
-  border-color: var(--card-border);
-  color: var(--text-3);
-  background: transparent;
-  cursor: not-allowed;
-}
-
-.ghost-btn:disabled:hover {
-  border-color: var(--card-border);
-  color: var(--text-3);
+/* 抽屉态专用的关闭键：宽屏下同理不出现。
+   `position: absolute` —— 它在抽屉里浮在栏的右上角，不占 flex 流，
+   否则会把「清空会话 / 推荐医生」这一行整体往下顶一截。 */
+.side-close {
+  display: none;
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+  padding: 6px;
 }
 
 /* ==================== 清空会话弹窗 ====================
@@ -1517,16 +2335,20 @@ onMounted(async () => {
 /* .stage-bar / .stage-item / .stage-dot / .stage-label —— 已停用 */
 
 /* ---------- 前情摘要 ---------- */
+/* 前情摘要：底色改白（原来是 --panel-bg）。
+   消息区透明之后，--panel-bg 的近白压在浅蓝底上没问题，但 --text-3 落在
+   --panel-bg 只有 4.27（不到 AA 4.5）—— 既然要改，就一次改到白面 + --text-2，
+   两处都达标，也不再多出一种「灰白条」的面。 */
 .summary-note {
   max-width: 86%;
   margin: 0 auto 16px;
   padding: 10px 14px;
-  background: var(--panel-bg);
+  background: var(--card-bg);
   border: 1px dashed var(--card-border);
   border-radius: var(--radius-sm);
   font-size: 12.5px;
   line-height: 1.75;
-  color: var(--text-3);
+  color: var(--text-2);
 }
 
 .sn-tag {
@@ -1546,13 +2368,19 @@ onMounted(async () => {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  /* 与输入行同宽居中：这条提示条就长在输入框的位置上，
+     宽度不跟 `.input-row` 对齐会让人以为输入区换了一套版式 */
   width: 100%;
+  max-width: calc(var(--chat-col) + var(--composer-bleed) * 2);
+  margin: 0 auto;
 }
 
 .closed-text {
   font-size: 13px;
-  /* 输入区已回退为白卡（--card-bg），--text-3 在白底是 4.8，达标 */
-  color: var(--text-3);
+  /* 输入区已透明，这句话直接压在马赛克背景上。
+     --text-3 落在页面底只有 3.60（不到 AA 4.5）→ 必须用 --text-2。
+     背景换成马赛克 + 34% 白纱之后实测 ≈5.8:1（光丝峰值区 ≈5.3:1），仍然守得住。 */
+  color: var(--text-2);
 }
 
 /* ---------- 「AI 正在分析」全屏动画 ---------- */
@@ -1758,26 +2586,70 @@ onMounted(async () => {
   opacity: 0;
 }
 
-/* 窄屏：头部操作区两个胶囊要放得下。挤不下时让它们换行而不是被压扁 ——
-   「清空会话」与「推荐医生」都得可点，压小到点不准等于没有这个功能。 */
-@media (max-width: 560px) {
-  .chat-head {
-    flex-wrap: wrap;
-    row-gap: 8px;
-  }
-}
+/* ⚠️ 窄屏（≤560px）断点**不在这里**，而在文件最末尾。
+   它原先就写在这个位置（基础 `.chat-body` / `.chat-input` 之前），
+   而媒体查询里的选择器与基础规则**特异性相同**，同特异性下后者胜 ——
+   于是那几行 padding 一直被下面的 `padding: 22px 32px` 整段覆盖，
+   属于「写了但从未生效」的死代码。挪到文件末尾即可，无需提高特异性。 */
 
-/* 消息区恢复 L2 次面（--panel-bg）。它同时是 AI 白气泡的**衬托**：
-   白气泡压在白卡上只有 1.15:1，靠自身描边几乎看不出边界，必须有一层略深的面垫在下面。
-   —— 这也是这一块不能跟着其他区域一起用 --card-bg 的原因。 */
+/* 消息区**透明**，让底下的 `.chat-lens`（WebGL 马赛克）透上来。
+   上一版它是 --panel-bg 的 L2 次面（用来衬托白气泡），现在衬托改由气泡自身的
+   1px 描边 + 轻投影承担 —— 一层「更浅的灰面」压在图上会把画面切断。 */
 .chat-body {
   flex: 1;
+  /* ⚠️ min-height: 0 不能省。flex 子项的默认 min-height 是 auto（= 内容高度），
+     内容一多它就不肯收缩，最终把父容器撑破 —— 输入区被顶出视口，
+     而页面上看不出是谁超了。参考页 `.chat-scroll` 同样写了这一行。 */
+  min-height: 0;
   overflow-y: auto;
-  padding: 22px 24px;
-  background: var(--panel-bg);
+  /*
+   * 消息区现在**铺满整个对话列**（输入区是浮层，压在它上面）——
+   * 于是两条边距必须按浮层高度算，不能再写死：
+   *   顶部 110px：第一条消息与视口顶的间距（用户指定值，顶部要预留后续内容）；
+   *   底部 = 浮层高 + 8：保证**滚到底时**最后一条消息完整停在浮层上方
+   *          （+8 是呼吸；浮层自身顶部还有 12px 内边距，合计约 20px 间隙）。
+   *
+   * ⚠️ 这个 padding 只影响「滚到底」那一帧的落点，不影响滚动途中的遮挡：
+   * 中途的消息会直接从浮层底下穿过去，被胶囊/chip 实体盖住的部分看不见，
+   * 露在它们之间的部分照常显示 —— 这是用户第二十轮明确要的观感。
+   */
+  padding: 110px 32px calc(var(--chat-foot) + 8px);
+  background: transparent;
+  /*
+   * 这里**没有** mask / 渐隐 —— 消息在底部是「被盖住」而不是「被淡化」。
+   *
+   * 历史：第十八轮曾用 `mask-image` 做 40px 底部渐隐，让消息在浮层上沿「化掉」；
+   * 第十九轮按要求撤掉 —— 用户的判据是「只有被输入框和建议 chip **实际盖住**的
+   * 地方看不见，其余都该看得见」，渐隐带会把本该看见的那几十像素一起化掉。
+   *
+   * 撤掉后顺带解决三件事：
+   *   ① 不用再给最右侧 12px 补一层 mask 去救滚动条（遮罩属于滚动容器的渲染内容，
+   *      会把滚动条一起渐隐；滚到底时拇指落进渐隐带，整根滚动条看起来像消失了）；
+   *   ② `--chat-fade` 这个变量随之删除，少一个「改了没反应」的旋钮；
+   *   ③ 背景连续性变得更显然 —— 整条链一层底色都没有，不存在拼接。
+   *
+   * ⚠️ 不要再加回来。它看着「柔和」，实际是把「遮挡」换成了「淡化」，
+   * 而用户明确不要糊。遮挡只能由浮层的实体（白胶囊、建议 chip）承担。
+   */
   /* Firefox 的细滚动条；-webkit- 分支见下 */
   scrollbar-width: thin;
-  scrollbar-color: var(--card-border) transparent;
+  scrollbar-color: var(--text-3) transparent;
+}
+
+/*
+ * 消息列限宽并居中 —— 参考页 `.msg-list { max-width: 760px; margin: 0 auto }`。
+ *
+ * 为什么必须限宽：气泡是 `max-width: 74%`（相对消息行），行宽一旦跟着窗口长，
+ * AI 的一条长回复能拉到 900px 以上，中文长段落的回扫距离太大，读起来很累。
+ * 760 是参考页给出的取值，也大致等于「一屏能舒适读完的行宽」。
+ *
+ * 只作用于 `.msg`，不动 `.chat-empty`（它自己限 420 居中）和 `.summary-note`
+ * （自己限 86% 居中）—— 那两块本来就有各自的宽度语言，统一成 760 反而会让
+ * 空态的图形离文字过远。
+ */
+.chat-body > .msg {
+  max-width: var(--chat-col);
+  margin-inline: auto;
 }
 
 /* 细圆角滚动条。浏览器默认的 15px 直角滚动条，在一屏圆润的界面里是最扎眼的一处棱角 */
@@ -1799,52 +2671,77 @@ onMounted(async () => {
   background: var(--text-3);
 }
 
+/*
+ * 细圆角滚动条。
+ *
+ * ⚠️ 拇指色从 --card-border 换成 --text-3：背景改成浅蓝渐变之后，
+ * --card-border（近白）压在 #c6d9f5 上几乎看不出 —— 滚动条等于不存在，
+ * 用户以为「这一屏已经到底了」。--text-3 是页面底上唯一达标的深色档之一，
+ * 且与消息正文的灰阶同族，不会跳出来抢注意力。
+ * 宽度 6px 略收窄，是因为透明背景上不需要给滚动条留「轨道」的视觉余量。
+ */
+.chat-body::-webkit-scrollbar {
+  width: 6px;
+}
+
+.chat-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.chat-body::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+  background: var(--text-3);
+  transition: background var(--dur) var(--ease);
+}
+
+.chat-body::-webkit-scrollbar-thumb:hover {
+  background: var(--text-2);
+}
+
+/*
+ * 空态：目标版式里它是**垂直居中**的一列（光核 → 一句引导 → 三条胶囊），
+ * 而不是贴在顶部。用 `margin: 10vh auto 0` 而不是 flex 居中：
+ * 消息区本身要保持块级流（消息、摘要、分析态都按块排），
+ * 为一次居中把它改成 flex 容器会连带影响所有子元素的宽度计算。
+ */
 .chat-empty {
   max-width: 420px;
-  margin: 32px auto 0;
+  margin: 10vh auto 0;
   text-align: center;
 }
 
-/* 光核：外层柔光呼吸 + 中层虚线环自转 + 内核渐变实心圆。
-   三层各自动、周期互质（4.5s / 16s / 静止），叠起来才不会「整块一起闪」的廉价感 ——
-   多层错频是纯 CSS 做出「有生命的机械」最省力的办法。 */
+/*
+ * 粒子球：外层柔光呼吸 + 中层点阵球（components/OrbNoise.vue，Canvas 2D）。
+ *
+ * 尺寸 148：粒子是半透明小点，视觉重量比原来那个 120px 的实心圆轻得多，
+ * 沿用 120 会在版式里「塌」下去；148 撑回了同一个视觉重心，高度上只多了 28px
+ * （`.chat-empty` 是 10vh 起排，不影响首屏可见的三条胶囊）。
+ *
+ * 删掉了原来的细环（`.orb-ring`）和实心内核（`.orb-core`）：点阵球自带球形轮廓，
+ * 再套一个 1px 圆环就变成「两个同心圆」，反而显得是加载动画。
+ */
 .empty-orb {
   position: relative;
-  width: 84px;
-  height: 84px;
-  margin: 0 auto 20px;
+  width: 148px;
+  height: 148px;
+  margin: 0 auto 24px;
 }
 
+/* 柔光：原来铺 `--primary-soft`（浅蓝），现在跟着粒子的色走 ——
+   紫色粒子 + 蓝白柔光会出现「冷底暖核」的脏边，同色系才像一团发光的雾。 */
 .orb-halo {
   position: absolute;
-  inset: -12px;
+  inset: -20px;
   border-radius: 50%;
-  background: radial-gradient(circle, var(--primary-soft) 0%, transparent 70%);
+  background: radial-gradient(circle, color-mix(in srgb, var(--orb-dot) 20%, transparent) 0%, transparent 68%);
   animation: halo-breathe 4.5s var(--ease) infinite;
 }
 
-.orb-ring {
+/* 画布层：绝对定位填满 `.empty-orb`；组件内部已处理 DPR 与尺寸测量。
+   同样带父级前缀，理由见 `.input-row .composer-orb` 上方那段。 */
+.empty-orb .orb-field {
   position: absolute;
-  inset: 7px;
-  border: 1px dashed var(--primary);
-  border-radius: 50%;
-  opacity: 0.35;
-  animation: orb-spin 16s linear infinite;
-}
-
-.orb-core {
-  position: absolute;
-  inset: 20px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  background: var(--grad-primary);
-  color: var(--on-primary);
-  font-family: var(--font-mono);
-  font-size: 15px;
-  font-weight: 600;
-  box-shadow: var(--shadow-primary);
+  inset: 0;
 }
 
 @keyframes halo-breathe {
@@ -1859,12 +2756,6 @@ onMounted(async () => {
   }
 }
 
-@keyframes orb-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
 .empty-desc {
   margin: 0 0 24px;
   font-size: 14px;
@@ -1872,40 +2763,61 @@ onMounted(async () => {
   color: var(--text-2);
 }
 
+/* 引导胶囊：三条**等宽居中**堆叠（目标版式），而不是随文字长短参差。
+   等宽的理由：它们是一组「入口」而不是三段引用，宽度不齐会让人以为
+   第二条更重要；`align-items: center` 让整组在空态里居中。 */
 .empty-tips {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  align-items: center;
+  gap: 12px;
 }
 
 /* 引导胶囊：悬停**上浮 + 主色描边**，不走「加深底色」——
-   底色一深，白卡上就会浮现一块与周围不同深浅的补丁，比不动更难看 */
+   底色一深，就会在浅蓝底上浮现一块与周围不同深浅的补丁。
+   白底 + 轻投影是它在渐变上「浮起来」的依据（目标图同款）。 */
 .tip-chip {
-  padding: 10px 16px;
+  width: 320px;
+  max-width: 100%;
+  padding: 12px 20px;
   border: 1px solid var(--card-border);
   border-radius: var(--radius-pill);
   background: var(--card-bg);
   color: var(--text-2);
+  font-family: inherit;
   font-size: 13.5px;
+  text-align: center;
   cursor: pointer;
+  box-shadow: var(--shadow-card);
   transition: all var(--dur) var(--ease);
 }
 
 .tip-chip:hover {
   border-color: var(--primary);
-  color: var(--primary);
+  color: var(--primary-dark);
   transform: translateY(-1px);
-  box-shadow: var(--shadow-card);
+  box-shadow: var(--shadow-hover);
 }
 
-/* 消息行。align-items 由默认的 stretch 改成 flex-start，让 AI 头像与气泡**首行**对齐
-   （长回复时头像停在顶部；跟着气泡底部走会显得「在追」）。
-   进入动画幅度刻意压得很小（6px / 240ms）：切会话时历史消息会整批重建 DOM、
-   一起播一遍，幅度一大就不是「新消息来了」而是「页面在抖」。 */
+/*
+ * 消息行：气泡 + 身份标 + 头像，头像**贴气泡底边**排在页面外侧
+ * （AI 在左下方、用户在右下方，见目标截图）。
+ *
+ * `align-items: flex-end` 是三档里唯一正确的：
+ *   · `stretch`   —— 头像会被拉成一整列高，不再是圆的；
+ *   · `flex-start` —— 头像与首行齐平，长回复时悬在顶部，读起来像「站在气泡头上」；
+ *   · `flex-end`  —— 头像底边与气泡底边对齐，是聊天界面的通用语汇
+ *                    （头像属于「谁说的」这个结论，跟着结尾走）。
+ *
+ * 进入动画幅度刻意压得很小（6px / 240ms）：切会话时历史消息会整批重建 DOM、
+ * 一起播一遍，幅度一大就不是「新消息来了」而是「页面在抖」。
+ */
 .msg {
   display: flex;
-  align-items: flex-start;
-  margin-bottom: 16px;
+  align-items: flex-end;
+  /* 18 → 20：目标截图里相邻气泡的间隙约 20px（同一说话人的连续消息会更紧，
+     但本页每条消息都是一个独立的 `<div>`，没有「同一人连发」的分组概念）。 */
+  margin-bottom: 20px;
   animation: msg-in 0.24s var(--ease) both;
 }
 
@@ -1925,24 +2837,38 @@ onMounted(async () => {
 }
 
 /* 消息两侧的身份标。底衬与图标由 `RoleAvatar` 提供（36px），这里只管间距。
-   间距刻意左右镜像：AI 标在气泡左（margin-right），用户在气泡右（margin-left），
-   这样两个头像都是「贴着自己的气泡、朝页面外侧留白」。 */
+   间距左右镜像：AI 标在气泡左（margin-right），用户在气泡右（margin-left），
+   两个头像都「贴着自己的气泡、朝页面外侧」。
+   ⚠️ 不能再写 `margin-top: 3px` —— 父级已是 `align-items: flex-end`，
+   那一行会让头像比气泡底边低 3px（改成顶对齐时留下的微调，现在没有意义）。 */
 .msg-face {
   flex: none;
-  margin: 3px 10px 0 0;
+  margin: 0 12px 0 0;
 }
 
 .msg.user .msg-face {
-  margin: 3px 0 0 10px;
+  margin: 0 0 0 12px;
 }
 
-/* 圆角 14 → 18，尾部保留一个收角（4 → 6）指向说话人 ——
-   全圆的泡泡会丢掉方向感，留一个收角是最省提示成本的做法 */
+/*
+ * 气泡宽度：取 `min(640px, 82%)` —— 640 在满屏（如 1920 宽）下正好是
+ * 「一屏舒适读完」的行宽，而百分比那一档保证窄屏时气泡不会贴着两侧留白。
+ * 两者取小，宽屏靠固定值、窄屏靠比例。
+ *
+ * 圆角统一 16px（`--radius-sm`），**四个角一样**：原先给「贴头像那一侧的下角」
+ * 留了 6px 的收角（`border-bottom-*-radius`），配顶对齐的头像是「指向说话人」的
+ * 小心思；但头像改到底部之后，收角正好落在头像旁边 —— 一个尖角贴着一颗圆头像，
+ * 看起来像两个图形撞在一起。目标截图里也是四角同圆。
+ *
+ * 字号 14 → 15px：聊天正文是「要读进去」的内容，14px 在 1440 宽的屏幕上偏小；
+ * 15px 配 1.75 行高，中文一行约 40 字，回扫距离刚好。
+ */
 .bubble {
-  max-width: 74%;
-  padding: 12px 16px;
-  border-radius: 18px;
-  line-height: 1.7;
+  max-width: min(640px, 82%);
+  padding: 14px 18px;
+  border-radius: var(--radius-sm);
+  font-size: 15px;
+  line-height: 1.75;
 }
 
 /* 用户气泡：主色**渐变**实心 + 主色同族投影。
@@ -1951,22 +2877,24 @@ onMounted(async () => {
 .msg.user .bubble {
   background: var(--grad-primary);
   color: var(--on-primary);
-  border-bottom-right-radius: 6px;
   box-shadow: var(--shadow-primary);
 }
 
-/* AI 气泡：白底 + 描边，**不加投影** —— 它已经坐在 L2 次面（--panel-bg）上，
-   那一层就是它的衬托；再叠阴影会让整个消息区发闷（见硬约定 #111 ②） */
+/* AI 气泡：白底 + **轻投影**，去掉描边。
+   目标截图里的白气泡没有可见边框，边界完全由投影交代 ——
+   一条 1px 灰线在大面积白气泡上反而会显脏（尤其多条消息排下来，
+   每一圈描边都在强调"这是个盒子"，而不是"这是一段话"）。 */
 .msg.ai .bubble {
   background: var(--card-bg);
-  border: 1px solid var(--card-border);
   color: var(--text-1);
-  border-bottom-left-radius: 6px;
+  box-shadow: var(--shadow-card);
 }
 
+/* 危机气泡是唯一保留描边的一种：它的底色是浅红（--risk-d-soft），
+   白底上的轻投影托不住一块带色相的面，需要描边把边界说清楚。 */
 .msg.ai .bubble.is-crisis {
   background: var(--risk-d-soft);
-  border-color: var(--risk-d-border);
+  border: 1px solid var(--risk-d-border);
   color: var(--risk-d);
 }
 
@@ -2279,227 +3207,483 @@ onMounted(async () => {
   }
 }
 
-/* 输入区回退为 L1 白面，同时把 antd 的两个控件「降棱角」——
-   默认的 6px 小圆角与整页 18 / 20px 的圆角语言不是一套，放在一起会显出「拼装的痕迹」 */
+/* 输入区**没有自己的面**：透明 + 无分隔线 + **浮在消息之上**。
+   目标版式里底部只有一枚浮在渐变上的白色胶囊输入框，没有横贯全宽的底栏；
+   保留 border-top 会在窗口底部切出一条与版式无关的线。
+
+   ⚠️ 2026-10-22 第十八轮：从「flex 的最后一行」改成**绝对定位的浮层**。
+   之前消息区到它上沿就被裁断，滚动时看上去像两个盒子拼在一起（用户的「断层」）；
+   现在消息区铺满整列、从它下面穿过去，再由 `.chat-body` 的 mask 渐隐 ——
+   视觉上是一个连续的空间，输入框只是停在上面的一个物件。
+
+   `z-index: 2` 是用户点名要求的层级：输入框（含 placeholder、建议胶囊、快捷键提示）
+   在最上层，AI 与用户的消息统一在下一层。消息区因为 mask 自带层叠上下文，
+   两者不会互相穿插。
+
+   底部留白 32px（原 22）：胶囊是「停下来的一块」，贴着视口底边会显得被切掉一截；
+   32px 让它在视觉上离开地面，也把整条输入区往上抬了一档（用户要求「整体上移一点」）。
+   ⚠️ 不要把这份留白挪进 `.composer` 的 margin —— 那样输入区仍占满原高度，
+   移动的只是胶囊内部，看上去不会有任何变化。 */
 .chat-input {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  padding: 12px 32px 32px;
+  /* ⚠️ 这里**不许**加 background / border / box-shadow。
+     底部之所以与上方的渐变是「同一张」，靠的就是这一层什么都不画 ——
+     一旦补了色（哪怕是同款渐变 + fixed），就变成「两块钱拼起来」，
+     而且 fixed 在祖先有 transform 时会失效成 scroll，渐变会重新起算。
+
+     另外：这一层的**透明是故意的**。消息从底下穿过去，只有被胶囊和 chip
+     实体压住的那部分看不见，露在缝隙里的部分照常显示（用户第二十轮要的就是这个）。
+     所以既不能补底色、也不能加 mask —— 遮挡交给 `.composer` / `.quick-chip` 自己。 */
+  background: transparent;
+}
+
+/* ---------- 追问建议（输入框右上方） ----------
+ *
+ * 样式取向是「轻、薄、可忽略」：它是提示不是内容，不能与气泡抢视觉重量。
+ * 三处细节：
+ *   ① **半透明毛玻璃**：70% 白 + `backdrop-filter: blur(18px) saturate(180%)`，
+ *      背后会透出一层被搅散的色与光。为什么是 70% 而不是更透 —— 实测过：
+ *      最坏情况是用户那条深蓝气泡（#1d4fd8）从下面经过，70% 合成底 #bbcaf3，
+ *      `--text-2` 压上去 **4.75:1**（亮端 #2563eb 时 5.01）；降到 65% 直接掉到
+ *      4.34，破 AA。**70% 是这条线的下限**，想更透就得先换更深的字色。
+ *      玻璃落在页面渐变上时其实很安全（6.98 / 7.14），瓶颈只在彩色气泡经过的瞬间；
+ *   ② 描边用「主色 20% 混进 --card-border」——纯灰描边像表单控件，
+ *      纯主色描边又太重；混一点主色相让它与发送键同族。
+ *      玻璃面上再加一道 1px 内高光（`--chip-hi`），玻璃才有「厚度」而不是「半透明贴纸」；
+ *   ③ 左侧 5px 渐变圆点 + 3px 柔光外圈：与右栏卡片标题的圆点、空态光核是同一支渐变，
+ *      让「这是 AI 给的提示」不需要用文字说明。
+ *
+ * ⚠️ 玻璃的代价要先讲清：背后滑过的消息不再是「完全看不见」，而是变成一团
+ * 模糊光斑透出来 —— 这是材质本身的性质，不是 bug。要「彻底盖住」就得回到实心白，
+ * 两者不可兼得（见 `.quick-chip` 里第十九/二十轮的取舍记录）。
+ */
+.quick-row {
   display: flex;
-  align-items: flex-end;
-  gap: 12px;
-  /* 下边距比上边距小 2px：下划线是输入的视觉落点，离卡片边缘太远会显飘 */
-  padding: 14px 24px 12px;
-  border-top: 1px solid var(--card-border);
-  background: var(--card-bg);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  /* 与输入胶囊同宽同轴（比消息列左右各宽 --composer-bleed）：
+     提示贴着输入框的右缘，不能各自居中 */
+  max-width: calc(var(--chat-col) + var(--composer-bleed) * 2);
+  margin: 0 auto 10px;
 }
 
 /*
- * 下划线输入框的外壳。
+ * 「等建议中」：整行藏起来，但**保留高度**。
  *
- * 这里只承担一件事：给那条动画底线提供 `position: relative` 的定位基准。
- * 为什么不让 a-textarea 自己当基准 —— 它的内部结构与自动高度由 antd 计算，
- * 往上加定位会让「测量行高」这件事多一个不确定因素。
+ * 为什么是 `visibility` 而不是 `v-if` / `display: none`：
+ * 这一行在输入胶囊正上方，把它从布局里摘掉，胶囊会往下掉 34px 再弹回来 ——
+ * 一个回合至少抖两次，比空着更难忍。`visibility: hidden` 不改变布局，
+ * 只是让内容不可见、不可点（也就不会有任何「虚影」）。
  *
- * `flex: 1` + `min-width: 0` 是 flex 布局里的固定搭配：前者让它占满剩余宽度，
- * 后者允许它被压缩（不写 min-width: 0 时，flex 项的默认最小尺寸是内容尺寸，
- * 长占位符会把它顶到溢出，发送按钮被挤出去）。
+ * 为什么这期间干脆不显示「上一轮的三条」：
+ * 它们是对上一段回答成立的，用户刚问了别的，灰着摆在那里既点不动、
+ * 又让人误以为点得动。宁可空着，也不要摆一段过期的建议。
+ */
+.quick-row--idle {
+  visibility: hidden;
+}
+
+.quick-chip {
+  /*
+   * 毛玻璃三件套：半透明底 + backdrop 模糊 + 顶边 1px 内高光。
+   *
+   * 70% 白是「透得出来 / 压得住字」的平衡点，推导写在 `.quick-row` 上方那段注释里
+   * （最坏情况是深蓝用户气泡从下面经过，70% 时 `--text-2` 仍有 4.75:1；65% 就破了 AA）。
+   * `saturate(180%)` 把透出来的浅蓝提一点色相 —— 纯 blur 会发灰，像磨砂塑料。
+   * `blur(18px)` 给得比常见值大：模糊半径小的时候，背后的字还能看出"是个字"，
+   * 那个状态最难看（半懂不懂的鬼影）；18px 直接把字搅成均匀的明暗，才像玻璃。
+   *
+   * 🔁 这个文件里它被改了三轮，留个沿革免得反复横跳：
+   *   第十七轮 84% + blur(8px) → 用户报「思考时发虚」（真因是 chip 上还挂了 transform）
+   *   第十九轮 改实心白、去掉 backdrop-filter → 为了「被盖住就看不见」
+   *   第二十轮 按用户要求改回玻璃，但**只做玻璃、不挂 transform**，
+   *            并把透明度从 84% 提到 70% + 模糊加到 18px，避开当年那个坑
+   */
+  background: color-mix(in srgb, var(--card-bg) 70%, transparent);
+  backdrop-filter: blur(18px) saturate(180%);
+  border: 1px solid color-mix(in srgb, var(--primary) 20%, var(--card-border));
+  border-radius: var(--radius-pill);
+  /* 顶边内高光：玻璃的"厚度"。做成变量是因为 hover 要换外层阴影但必须保留它 */
+  --chip-hi: inset 0 1px 0 color-mix(in srgb, var(--card-bg) 90%, transparent);
+  color: var(--text-2);
+  font-family: inherit;
+  font-size: 12.5px;
+  line-height: 1.35;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow:
+    var(--chip-hi),
+    var(--shadow-card);
+  display: inline-flex;
+  align-items: center;
+  padding: 7px 14px;
+  /*
+   * ⚠️ 不要给 `transform` 加过渡，也不要在 `:hover` 里位移 / 缩放。
+   * chip 带 `backdrop-filter`，Chrome 对带背景模糊的元素做位移时会拿**变换前**的
+   * 画面去采背景，合成出一层抹开的残影 —— 第十七轮那个「思考时发虚」就是这么来的。
+   * 悬停的「浮起来」改用加重阴影表达，手感差别很小。
+   */
+  transition:
+    border-color var(--dur) var(--ease),
+    color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
+}
+
+.quick-chip::before {
+  content: '';
+  flex: none;
+  width: 5px;
+  height: 5px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: var(--grad-primary);
+  box-shadow: 0 0 0 3px var(--primary-soft);
+  /* 只过渡柔光外圈：圆点不做 scale —— 一排 chip 的圆点同时缩放在视觉上很吵 */
+  transition: box-shadow var(--dur) var(--ease);
+}
+
+.quick-chip:hover {
+  border-color: var(--primary);
+  /* 悬停文字必须换 --primary-dark：--primary 落在近白底上只有 4.44，不到 AA */
+  color: var(--primary-dark);
+  /* 只换外层阴影，`--chip-hi` 必须原样带上 —— 漏了的话悬停瞬间玻璃的顶边高光会消失，
+     看起来像贴纸被人抽走了一层 */
+  box-shadow:
+    var(--chip-hi),
+    var(--shadow-hover);
+}
+
+.quick-chip:hover::before {
+  box-shadow: 0 0 0 4px var(--primary-soft);
+}
+
+/*
+ * 这里原先有 `.quick-chip:disabled { opacity: 0.55 }`，已删除（2026-10-22）。
+ *
+ * 它是「AI 思考中」那层虚影的第二个来源：0.55 的半透明白片压在浅蓝渐变上，
+ * 看起来就是一张发白的残影。而现在的做法是整个回合把行 `visibility: hidden`，
+ * 既然看不见，就不需要用「压暗」去表达「暂时别点」——
+ * 半透明的禁用态反而会在其它场景（如窄屏重排）里重新露出来。
+ */
+
+/*
+ * 输入行：宽度、居中，以及「右侧粒子球」的定位参照。
+ *
+ * 发送按钮已经放进胶囊内部（见模板），所以这里**不是** flex 容器 ——
+ * `.composer` 自己就是 760 宽、居中、内含三个子项的一整条。
+ * 与 `.chat-body > .msg` 用同一个 max-width，左缘落在同一根竖线上。
+ *
+ * `position: relative` 只为一件事：让 `.composer-orb` 以**本行右缘**为基准往右放。
+ * 球是绝对定位，不参与本行的宽度计算 —— 所以胶囊的宽度、居中、与消息列的对齐
+ * 全都不受它影响（真用 flex 并排就会把胶囊挤窄，输入框就不再比消息区宽 5px）。
+ */
+.input-row {
+  position: relative;
+  /* 比消息列左右各宽 --composer-bleed：输入条是这屏唯一「浮起来」的物件，
+     边缘略微超出正文列，才读得出「它在上面一层」而不是「正文的一部分」。 */
+  max-width: calc(var(--chat-col) + var(--composer-bleed) * 2);
+  margin: 0 auto;
+}
+
+/*
+ * 输入框**左侧**的粒子球（会话已有消息时出现，见模板注释）。
+ *
+ * 尺寸与间距由 JS 写进 `--orb-size` / `--orb-gap`（单一口径在 syncComposerOrb 里），
+ * 这里只管摆放：右缘贴住本行左缘再让出 gap（`right: calc(100% + gap)`），
+ * 垂直方向用 `top: 50% + 负 margin` 居中 —— 与胶囊里的发送键同一条中轴。
+ *
+ * ⚠️ 居中**不用** `translateY(-50%)`：不是这里不能转，而是本项目的约定 ——
+ *    第十八轮出过「backdrop-filter 元素带 transform → Chrome 拿变换前的画面采背景
+ *    → 重影」（见 `.quick-chip` 上方那段）。负 margin 一样准，且不引入这条风险，
+ *    也让「这层永远不加 transform」成为可以直接 grep 的规矩。
+ *
+ * ⚠️ 选择器带 `.input-row` 前缀是有意的：球组件自己的根节点也带 `position: relative`
+ *    （`.orb`），两条规则特异性相同（类 + 作用域属性），谁生效取决于**两个 CSS 块
+ *    在产物里的先后顺序** —— 那是由模块图决定的，没法保证。这里多一层前缀把它压死，
+ *    否则某次重构后球会掉进普通流、跑到输入框上面单独占一行（典型的 #140 号坑）。
+ */
+.input-row .composer-orb {
+  position: absolute;
+  right: calc(100% + var(--orb-gap, 12px));
+  top: 50%;
+  width: var(--orb-size, 54px);
+  height: var(--orb-size, 54px);
+  margin-top: calc(var(--orb-size, 54px) / -2);
+  /* 装饰层，且它落在胶囊左侧的空白区：不能吃掉任何指针事件，
+     也不能让「从这里开始拖动选中文字」失效 */
+  pointer-events: none;
+}
+
+/*
+ * 输入胶囊。
+ *
+ * 形状从「透明底 + 一条下划线」换成「白底 + 全圆角胶囊」（目标版式）：
+ * 下划线输入在透明渐变上会失去「输入框在哪」的边界，而胶囊自带面与边界，
+ * 与上方的引导胶囊、右侧的操作胶囊是同一族形状。
+ *
+ * 一行三件：textarea（flex:1）/ 快捷键提示 / 44px 发送圆钮。
+ * 三者都在**胶囊内部**，右内边距只有 6px —— 按钮与胶囊右缘之间是「紧贴」的，
+ * 这样它读起来是胶囊的右端，而不是旁边多出来的一颗圆钮。
+ *
+ * ⚠️ 圆角写 26px 而不是 --radius-pill(999)：胶囊内是自动增高的 textarea，
+ * 最多 4 行。999 会被浏览器钳到高度的一半，多行时左右弧形会啃进文字；
+ * 26px 在单行高（约 54px）下等效于完美胶囊（钳到 27 附近），多行时退化成圆角矩形，
+ * 两种状态都成立 —— 一处取值同时满足两个高度，不需要媒体查询或 JS 判断。
  */
 .composer {
   position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
   flex: 1;
   min-width: 0;
+  padding: 5px 6px 5px 22px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 26px;
+  /*
+   * 四层阴影 = 四个「层次」，从贴身到散开（2026-10-22 第二十一轮）：
+   *
+   *   ① 接触影   0 1px 2px           --text-1  6%   交代「胶囊贴着什么东西」
+   *   ② 近影     0 6px 16px -4px     --text-1 10%   中性灰，负责结构
+   *   ③ 中景影   0 16px 34px -8px    --primary 12%  开始带色，阴影过渡成「光」
+   *   ④ 扩散晕   0 0 44px -4px       --primary 14%  无方向的大范围柔光
+   *
+   * 三点取舍：
+   *   · **蓝而不是黑**：黑色大范围投影压在低饱和浅蓝底上会发灰（看着像脏了），
+   *     主色混透明才是「发光」。所以 ③④ 用 `--primary`，①② 仍用中性 `--text-1`
+   *     收结构 —— 全蓝会飘，全灰会脏，混着才对。
+   *   · **不用 `--shadow-card`**：那是卡片语汇（单层中性影），托不住这里要的层次。
+   *   · **负 spread（-4 / -8）**：浮层左右只有 32px 内边距，正 spread 的大模糊会顶到
+   *     `.chat-main` 的 `overflow: hidden` 上。实测外缘 alpha 已不到 1%（看不到），
+   *     但往里收几像素更稳，也避免「光晕比胶囊大一圈」的笨重感。
+   *
+   * ⚠️ 阴影是**静态**的（不进 transition）。聚焦时的加强由 `::after` 承担，
+   * 原因见下面那段注释 —— 别为了「一步到位」把 box-shadow 塞回过transition。
+   */
+  box-shadow:
+    0 1px 2px color-mix(in srgb, var(--text-1) 6%, transparent),
+    0 6px 16px -4px color-mix(in srgb, var(--text-1) 10%, transparent),
+    0 16px 34px -8px color-mix(in srgb, var(--primary) 12%, transparent),
+    0 0 44px -4px color-mix(in srgb, var(--primary) 14%, transparent);
+  transition: border-color var(--dur) var(--ease);
 }
 
 /*
- * 输入框本体：透明底 + 一条底线。
+ * 聚焦加强：单独一层光晕，**只过渡 opacity**。
  *
- * 与原始样例的差异只有两处，都不是审美取舍：
- *  ① 去掉 `box-shadow: 0 4px 8px rgba(0,0,0,.1)`。样例是深色背景，那层投影负责
- *     让透明输入框「浮」起来；本项目输入区是白卡，同样的投影在浅底上只会显脏
- *     （一个没有填充的矩形投出的影子，看起来像污渍，而不是立体感）。
- *  ② 字号从 1.2rem 收到 15px。1.2rem ≈ 19px 是给独立表单大输入框的，
- *     放进一行高的对话输入条会显得突兀，且与 32px 的发送按钮不成比例。
+ * 为什么不直接让 `.composer` 的 box-shadow 在两态之间插值：
+ * box-shadow 的动画每帧都要重新光栅化整块模糊区域（约 770×160），
+ * 低配机上会掉帧；而 opacity 是合成器直接做的，阴影只需光栅化一次。
+ * 圆角、范围、颜色全都不变量，只让「亮度」渐变 —— 视觉上也更像光在慢慢亮起来。
+ *
+ * `z-index: -1` 为什么能把光画到胶囊**背后**：`.composer` 有 position 但没 z-index，
+ * 不是层叠上下文，所以这个伪元素落到 `.chat-input`（`z-index: 2`）那一层里，
+ * 排在胶囊自身背景之下、消息之上 —— 正是「从胶囊底下透出来的光」。
+ * `inset: -1px` 是为了贴住 border box（绝对定位的包含块是 padding box，差一圈 border）。
+ * `pointer-events: none` 必须有：光晕盖住胶囊四周，不能吃掉那一带的点击。
+ */
+.composer::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow:
+    /* 紧贴环：原来的聚焦表达，只是改为随光晕一起淡入 */
+    0 0 0 4px var(--primary-soft),
+    /* 扩散晕：比静止态更亮更大（14% → 22%，44px → 56px） */
+    0 0 56px -4px color-mix(in srgb, var(--primary) 22%, transparent);
+  opacity: 0;
+  /* 240ms 比 --dur 稍长：光「亮起来」比「切过去」慢一点才自然 */
+  transition: opacity 240ms var(--ease);
+}
+
+/*
+ * 聚焦：外圈主色描边 + 一圈柔光。
+ * 原来的焦点表达是「渐变线从 0 铺满」，那是下划线输入框的语汇；
+ * 胶囊没有底线可铺，改成「整圈亮起」—— 同样的动效时长与缓动，
+ * 只是把「线的生长」换成「环的显现」。
+ *
+ * 描边单独用 --dur 过渡（它只重绘 1px 边框，很便宜），光晕走 240ms，
+ * 两者不同步是故意的：边框先说「我在这里」，光随后漫上来。
+ */
+.composer:focus-within {
+  border-color: var(--primary);
+}
+
+.composer:focus-within::after {
+  opacity: 1;
+}
+
+/*
+ * 输入框本体：完全去壳（透明、无边框、无内边距），
+ * 面与内边距全部由 `.composer` 承担 —— 这样光标区与胶囊的左右留白是同一套数值，
+ * 不会出现「文字离左边 22px、胶囊弧线却按 6px 算」的错位。
  */
 .chat-input :deep(.ant-input) {
+  flex: 1;
+  min-width: 0;
   border: none;
-  border-bottom: 2px solid var(--card-border);
   border-radius: 0;
-  padding: 6px 8px;
+  padding: 0;
   background-color: transparent;
   color: var(--text-1);
   font-size: 15px;
+  line-height: 1.6;
   caret-color: var(--primary);
-  /* 清掉 antd 的聚焦光晕：焦点表达完全交给下面那条渐变线，两套同时出现会打架 */
+  /* 清掉 antd 的聚焦光晕：焦点表达交给 `.composer:focus-within` */
   box-shadow: none;
+  resize: none;
 }
 
-/*
- * 聚焦：把 antd 的底色底线变透明，让位给叠加在上面的渐变线。
- * ⚠️ 这一步不能省。渐变线是 3px、底线是 2px，两者同时可见会叠成一条 5px 的
- * 双色边（下半 2px 是灰的、上半 3px 是渐变），看起来像描边错位。
- */
 .chat-input :deep(.ant-input:focus),
 .chat-input :deep(.ant-input-focused) {
-  border-bottom-color: transparent;
+  border: none;
   background-color: transparent;
   box-shadow: none;
 }
 
-/* 占位符落在白卡上，--text-3 是 4.8（达标）；不用 --text-2 是因为
-   下划线输入框本身没有描边，占位符太黑会与已输入的正文抢重要性 */
+/* 占位符落在白胶囊上，--text-3 是 4.8（达标） */
 .chat-input :deep(.ant-input::placeholder) {
   color: var(--text-3);
 }
 
-/* 禁用（会话已结束 / 无权发送）：底色必须显式声明，否则 antd 会填它自己的灰底，
-   在一个透明底的输入框上会变成一块突兀的灰矩形 */
+/* 禁用（会话已结束 / 无权发送）：底色必须显式声明，否则 antd 会填它自己的灰底 */
 .chat-input :deep(.ant-input[disabled]) {
   background-color: transparent;
   color: var(--text-3);
-  border-bottom-color: var(--card-border);
 }
 
 /*
- * 聚焦渐变线。
- *
- * 静止时宽度 0（不可见），聚焦时在 0.4s 内铺满。
- * `pointer-events: none` 是必须的：它压在输入框下沿、高 3px，
- * 不关掉命中测试的话，点这一条会点到这条 span 上而不是 textarea ——
- * 表现为「点输入框最下面 3px 没反应」。
- *
- * 缓动取 `cubic-bezier(0.42, 0, 0.58, 1)`（与原始样例的 input-alt 一致）：
- * 前后对称的缓入缓出，铺开的过程是匀的。样例另一条
- * `cubic-bezier(0.6, -0.28, 0.735, 0.045)` 带负控制点、起步会「先退再冲」，
- * 那是给 0.3s 短线的，配 3px 渐变线会显得毛躁。
+ * 快捷键提示：胶囊内右侧的小字。
+ * `flex: none` + `nowrap` 保证它不被 textarea 挤压折行；
+ * 窄屏由媒体查询隐藏（375px 上引导语与提示会挤成一团）。
  */
-.composer-line {
-  position: absolute;
-  left: 0;
-  bottom: 0;
-  width: 0;
-  height: 3px;
-  background: var(--grad-underline);
-  pointer-events: none;
-  transition: width 0.4s cubic-bezier(0.42, 0, 0.58, 1);
+.composer-hint {
+  flex: none;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-3);
+  white-space: nowrap;
+  user-select: none;
 }
 
-/*
- * 用 `:focus-within` 而不是样例的 `.input:focus + .input-border`。
- * 相邻兄弟选择器要求「span 紧挨在 input 后面」，而 antd 在不同版本 / 不同属性下
- * 可能给 textarea 套包裹层，那时 `+` 会静默失效（线永远不出现，且没有任何报错）。
- * `:focus-within` 只看「焦点在不在这个壳里」，与中间节点结构无关。
- */
-.composer:focus-within .composer-line {
-  width: 100%;
-}
-
-/* 减动效：不做「铺开」，直接给最终状态。
-   ⚠️ 不能改成 display:none —— 那样焦点就完全不可见了。 */
-@media (prefers-reduced-motion: reduce) {
-  .composer-line {
-    transition: none;
-  }
-}
-
-/* ---------- 发送按钮：圆环 + 箭头 ----------
+/* ---------- 发送按钮：双层圆环 + 上箭头（Uiverse / xopc333） ----------
  *
- * 尺寸按「输入框一行高 ≈ 38px」反推，全部是可以算出来的，不是估的：
- *   按钮 40×40（与输入框基线对齐）
- *   圆环 inset 5px → 环的外框 30×30，border 3px → 内孔 24×24
- *   箭头 16×16 居中在 24 的内孔里
- *   每个 `.send-elem` 占位 = 16 + 12×2 = 40，恰好等于按钮高度
- *     → 一次 `translateY(-40px)` 刚好吃掉一个箭头，不会半格错位
+ * 形状从「主色实心圆」换回样例的**双层圆环**（2026-10-22 第二十六轮，用户指定）：
+ * 静息是一圈淡蓝细环，悬停时它缩掉、一圈更实的主色环从 1.12 倍收进来，
+ * 同时下方那支箭头滑上来 —— 环的「一进一出」就是按压感的来源，实心圆做不出来。
  *
- * `overflow: hidden` 是这套滑动的裁切来源：两个箭头纵向排了 80px，
- * 只露出最上面那个 40px 的窗口。
+ * 尺寸 44×44：
+ *   胶囊单行高 ≈ 54（上下各 5px 内边距 + 44 的按钮撑起内容区）
+ *   按钮比胶囊内沿略小、四周留 5px，视觉上「嵌在里面」而不是「比它高」
+ *   箭头 16×16 居中 → 四周留 14px，不需要额外定位
+ *
+ * 三处与样例的必要差异：
+ *   ① **箭头朝上**：样例的路径指向 +x（右），朝上要 `rotate(-90deg)`
+ *      （CSS 正角是顺时针，写正值会朝下）；相应地「两支箭头」的轨道从横向
+ *      改成纵向（`flex-direction: column` + `translateY(-44px)`），
+ *      否则朝上的箭头横向平移，读起来是「横着挪」而不是「往上送」。
+ *   ② **缩放上限 1.12**：样例按钮 56px、环 inset 7px，环放大到 1.3 倍（54.6）
+ *      仍小于按钮；我们只有 44px、环 inset 3px（外径 38），1.3 倍是 49.4 ——
+ *      会被 `overflow: hidden` 切成四段弧。44/38 ≈ 1.157，取 1.12 留一点余量。
+ *   ③ **曲线改用本项目的两档缓动**（`--ease-entry` / `--ease-prod`）：
+ *      样例的三条 cubic-bezier 是它自己的动效语言，与本页其余动效不同族；
+ *      但**保留 80ms 的延迟不对称** —— 环缩回去时先让、再让新环进场，
+ *      这个先后关系是手感的一部分，换曲线也不该丢。
  */
 .send-btn {
   position: relative;
   flex: none;
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   padding: 0;
   border: 0;
+  border-radius: 50%;
+  /* 透明底：形状完全由两枚伪元素圆环承担 */
   background: transparent;
-  /* 环与箭头都吃 currentColor，悬停只改这一处，两处同时变 */
   color: var(--primary);
   cursor: pointer;
+  /* 裁掉箭头滑动时的「另一半」；环的最大缩放 1.12 仍在圈内，不会切到 */
   overflow: hidden;
-  transition: color var(--dur) var(--ease);
+  transition:
+    color var(--dur) var(--ease),
+    transform var(--dur) var(--ease);
 }
 
-.send-btn::before,
-.send-btn::after {
+.send-btn:before,
+.send-btn:after {
   content: '';
   position: absolute;
-  inset: 5px;
   border-radius: 50%;
-  /* 圆环是装饰，不能吃点击 —— 否则点环内侧空白处会落在伪元素上 */
+  /* 44 - 6 = 38 外径；再扣 3px 边框 → 内径 32，16px 的箭头四周还有 8px */
+  inset: 3px;
   pointer-events: none;
 }
 
-/*
- * 静止环。缓动与时长照抄样例：`0.4s / 0.5s` 两条曲线配 80ms 延迟，
- * 让「旧环缩走」比「新环长出来」稍慢半拍，视觉上才像两个环在交错而不是一起闪。
- */
-.send-btn::before {
-  border: 3px solid currentColor;
+/* 静息环：主色 55% —— 再淡就和「禁用态那圈灰环」分不出来了（这是这个样式最大的坑），
+   再浓又和悬停环没有区别，一眼看不出可点 */
+.send-btn:before {
+  border: 3px solid color-mix(in srgb, var(--primary) 55%, transparent);
   transition:
-    opacity 0.4s cubic-bezier(0.77, 0, 0.175, 1) 80ms,
-    transform 0.5s cubic-bezier(0.455, 0.03, 0.515, 0.955) 80ms;
+    opacity 0.4s var(--ease-prod) 80ms,
+    transform 0.5s var(--ease-entry) 80ms;
 }
 
-/*
- * 悬停环。初始 `scale(1.25)` 而不是样例的 `1.3`：
- * 30×30 × 1.3 = 39，几乎顶到 40 的裁切边，动画起始那一瞬会被切掉 0.5px。
- * 1.25 留出余量，看起来更干净。
- *
- * 颜色取 `--primary-dark`（对白 6.4:1）而不是更浅的主色档：
- * 白底上再浅一档就掉到 3:1 以下，环会「变淡」而不是「变亮」。
- */
-.send-btn::after {
-  border: 3px solid var(--primary-dark);
-  transform: scale(1.25);
+/* 悬停环：主色实色，先以 1.12 倍隐身待命，悬停时收回 1 倍并显形 */
+.send-btn:after {
+  border: 3px solid var(--primary);
   opacity: 0;
+  transform: scale(1.12);
   transition:
-    opacity 0.4s cubic-bezier(0.165, 0.84, 0.44, 1),
-    transform 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    opacity 0.4s var(--ease-entry),
+    transform 0.5s var(--ease-prod);
 }
 
-/*
- * 用 `:not(:disabled)` 而不是靠规则顺序去压 disabled 的悬停态：
- * 原生 button 即使在 disabled 时**仍然会匹配 `:hover`**，
- * 只靠「把 disabled 规则写在后面」很脆 —— 以后任何人往中间插一段样式就会复现。
- */
-.send-btn:not(:disabled):hover::before,
-.send-btn:not(:disabled):focus-visible::before {
+.send-btn:not(:disabled):hover,
+.send-btn:not(:disabled):focus-visible {
+  color: var(--primary-dark);
+}
+
+.send-btn:not(:disabled):hover:before,
+.send-btn:not(:disabled):focus-visible:before {
   opacity: 0;
   transform: scale(0.7);
   transition:
-    opacity 0.4s cubic-bezier(0.165, 0.84, 0.44, 1),
-    transform 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    opacity 0.4s var(--ease-entry),
+    transform 0.5s var(--ease-prod);
 }
 
-.send-btn:not(:disabled):hover::after,
-.send-btn:not(:disabled):focus-visible::after {
+.send-btn:not(:disabled):hover:after,
+.send-btn:not(:disabled):focus-visible:after {
   opacity: 1;
   transform: scale(1);
   transition:
-    opacity 0.4s cubic-bezier(0.77, 0, 0.175, 1) 80ms,
-    transform 0.5s cubic-bezier(0.455, 0.03, 0.515, 0.955) 80ms;
+    opacity 0.4s var(--ease-prod) 80ms,
+    transform 0.5s var(--ease-entry) 80ms;
 }
 
-/*
- * 键盘焦点必须自己补。样例把 `:focus` 和 `:hover` 写在同一组选择器里，
- * 意味着「键盘焦点」和「鼠标悬停」长得一模一样 —— 但悬停是**瞬时**的、
- * 焦点是**持续**的，用户按 Tab 过来时无法分辨「我现在停在这个按钮上」。
- * 所以额外给一圈实心 outline。`overflow: hidden` 不会裁掉自身 outline。
- */
+.send-btn:not(:disabled):active {
+  transform: scale(0.94);
+}
+
+/* 键盘焦点：环的「一进一出」本身就是可见变化，但那只是颜色深浅之差；
+ * 键盘用户需要一条**位置明确**的指示，所以额外补一圈外环。
+ * offset 3px 仍在胶囊内（胶囊右内边距 6px），不会顶到胶囊边缘。 */
 .send-btn:focus-visible {
-  outline: 2px solid var(--primary);
-  outline-offset: 2px;
-  border-radius: 50%;
+  outline: 2px solid var(--primary-dark);
+  outline-offset: 3px;
 }
 
-/* 两个箭头的纵向轨道 */
+/* 两个箭头的纵向轨道。44 宽下箭头 16 + 左右各 14 = 44，正好一格 */
 .send-box {
   position: absolute;
   top: 0;
@@ -2513,7 +3697,7 @@ onMounted(async () => {
   display: block;
   width: 16px;
   height: 16px;
-  margin: 12px;
+  margin: 14px;
   /*
    * 样例的路径指向 +x（右）。朝上 = 逆时针 90°。
    * ⚠️ CSS 的 `rotate()` 正角是**顺时针**（y 轴朝下），
@@ -2531,15 +3715,16 @@ onMounted(async () => {
 
 .send-btn:not(:disabled):hover .send-box,
 .send-btn:not(:disabled):focus-visible .send-box {
-  transform: translateY(-40px);
+  transform: translateY(-44px);
 }
-
 /* ---------- 发送中 ---------- */
+/* 按钮现在是透明底，转圈直接骑在白胶囊上 —— 所以环用主色（原来是 on-primary 白，
+   那是配实心主色底才对的；透明底上说白环等于看不见）。 */
 .send-spin {
   position: absolute;
-  inset: 11px;
+  inset: 10px;
   border-radius: 50%;
-  border: 2px solid color-mix(in srgb, var(--primary) 26%, transparent);
+  border: 2px solid color-mix(in srgb, var(--primary) 28%, transparent);
   border-top-color: var(--primary);
   opacity: 0;
   pointer-events: none;
@@ -2552,8 +3737,15 @@ onMounted(async () => {
   }
 }
 
-/* 发送中：箭头让位给转圈，悬停换环的效果也停掉（那会让人以为还能再点一次） */
+/* 发送中：箭头让位给转圈，两枚圆环同时隐去（否则两圈叠在一起像描边没对齐），
+   悬停变化也停掉（那会让人以为还能再点一次） */
 .send-btn.is-busy .send-box {
+  opacity: 0;
+  transition: opacity 0.15s linear;
+}
+
+.send-btn.is-busy:before,
+.send-btn.is-busy:after {
   opacity: 0;
   transition: opacity 0.15s linear;
 }
@@ -2562,28 +3754,31 @@ onMounted(async () => {
   opacity: 1;
 }
 
-.send-btn.is-busy::before,
-.send-btn.is-busy::after {
-  opacity: 0;
-}
-
 /* ---------- 不可用 ----------
- * 原生 button 的 disabled 不受 hover 影响（上面的规则已用 :not(:disabled) 排除），
- * 这里只需要把颜色压下去、光标改掉。禁用控件不参与 WCAG 对比度要求，
- * 所以用 `--card-border` 这种很浅的灰是合规的，视觉上也确实是「这里按不了」。
+ * 原生 button 的 disabled 不受 hover 影响（上面的规则已用 :not(:disabled) 排除）。
+ * 透明底之后不能再靠「灰面」表达禁用，改成：环褪成中性灰、箭头同色
+ * —— 形状还在，只是整颗「熄了」。禁用控件不参与 WCAG 对比度要求。
  */
 .send-btn:disabled {
-  color: var(--card-border);
+  color: var(--text-3);
   cursor: not-allowed;
 }
 
-/* 减动效：去掉滑移与缩放，只留「悬停换色」这个结果。
+.send-btn:disabled:before {
+  border-color: color-mix(in srgb, var(--text-3) 26%, transparent);
+}
+
+.send-btn:disabled:after {
+  opacity: 0;
+}
+
+/* 减动效：去掉滑移与环的缩放，只留「静息环 / 悬停环」这个结果（形状变、不位移）。
    ⚠️ 转圈**不关** —— 它是「正在发送」唯一的反馈，停掉之后用户无法判断
    按钮是否在工作，只能反复点击。这一处属于「表达状态所必需」，不是装饰。 */
 @media (prefers-reduced-motion: reduce) {
-  .send-btn::before,
-  .send-btn::after,
-  .send-box {
+  .send-box,
+  .send-btn:before,
+  .send-btn:after {
     transition: none;
   }
 
@@ -2591,32 +3786,120 @@ onMounted(async () => {
   .send-btn:not(:disabled):focus-visible .send-box {
     transform: none;
   }
+
+  .send-btn:not(:disabled):hover:before,
+  .send-btn:not(:disabled):focus-visible:before,
+  .send-btn:not(:disabled):hover:after,
+  .send-btn:not(:disabled):focus-visible:after {
+    transform: none;
+  }
 }
 
 /* ---------- 右栏 ---------- */
+/*
+ * 右栏：**白面通栏面板**（目标版式里它是整页唯一的一块白）。
+ *
+ * 与刚删除的顶栏正是同一套判断的反面：顶栏是一条横贯对话区的白条，
+ * 会把渐变切断；右栏是一列纵向的白面，与左侧渐变形成「深底 / 白栏」的分区，
+ * 这是目标图里最重要的一处结构关系 —— 左边是内容，右边是上下文。
+ *
+ * 底色从 --panel-bg 换回 --card-bg：浅蓝渐变旁边再放一层「近白灰」会显脏，
+ * 纯白才有目标图那种干净的分栏感。卡片压在纯白上靠 1px 描边分层，
+ * 不再需要底色差。
+ *
+ * 滚动条：右栏内容（四张卡 + 页脚）在 900px 高的视口里通常会溢出，
+ * 而这一列的滚动条必须**看得见** —— 用户反馈「上下滚动时右侧要出现滚动条」。
+ * 拇指取 --text-3（白底上 4.8:1），宽度给到 8px，比消息区那根 6px 的更粗：
+ * 它滚动的是「上下文」而不是正文，粗一点更容易在余光里被摸到。
+ */
 .chat-side {
+  position: relative;
+  /* 压在背景层（.chat-lens, z-index: 0）之上；窄屏抽屉态由媒体查询改成 30 */
+  z-index: 1;
+  flex: 0 0 300px;
+  width: 300px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
+  padding: 18px 16px 20px;
+  background: var(--card-bg);
+  border-left: 1px solid var(--card-border);
   overflow-y: auto;
-  /* 与 .chat-body 用同一套细滚动条语言 */
   scrollbar-width: thin;
-  scrollbar-color: var(--card-border) transparent;
+  scrollbar-color: var(--text-3) transparent;
 }
 
-/* 圆角 --radius-sm(12) → --radius-lg(20)：与 .chat-main 取同一档。
-   左窗右栏的圆角不一致，会让人一眼看出是两块拼起来的 */
+.chat-side::-webkit-scrollbar {
+  width: 8px;
+}
+
+.chat-side::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.chat-side::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 4px;
+  background: var(--text-3);
+  background-clip: padding-box;
+}
+
+.chat-side::-webkit-scrollbar-thumb:hover {
+  background: var(--text-2);
+  background-clip: padding-box;
+}
+
+/*
+ * 动作组（清空会话 / 推荐医生）：右栏第一行，右对齐。
+ *
+ * `flex: 0 0 auto` 是必需的：右栏是纵向 flex 且 `overflow-y: auto`，
+ * 滚动时这一行会跟着滚走 —— 这正是要的（它属于栏内容，不是浮动工具条）。
+ * 右对齐让两枚胶囊贴住卡片右缘，与下方卡片的**左对齐**形成对照，
+ * 不会被读成「第三张卡片」。
+ */
+/*
+ * 动作组：两枚等宽胶囊铺满整行。
+ *
+ * `flex: 1 1 0` + `min-width: 0` 是「等宽」的正解：基准宽度取 0 而不是 auto，
+ * 两枚才会**严格对半**；否则「推荐医生」比「清空会话」宽一点点（内容宽不同），
+ * 分割线就不在正中间，对齐卡片边缘时看着歪。
+ *
+ * `min-width: 0` 不能省：flex 子项默认 `min-width: auto`（= 内容宽），
+ * 而 `.btn` 上有 `white-space: nowrap`，一旦栏宽变窄，按钮宁可溢出也不收缩。
+ *
+ * 宽度来源：`.chat-side` 的左右内边距（16px），与 `.side-card` 用的是同一组 ——
+ * 所以按钮的左右边缘天然与卡片对齐，不需要任何额外的负 margin。
+ */
+.side-ops {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 10px;
+}
+
+.side-ops .btn {
+  flex: 1 1 0;
+  min-width: 0;
+  /* 等宽之后文字必须居中，否则会各自贴左，看上去像两个对齐失败的表单项 */
+  justify-content: center;
+}
+
+/* 卡片：圆角 --radius-sm(16)、内边距 16。
+   右栏底色回到纯白之后，卡片靠「1px 描边 + 极轻投影」分层 ——
+   白压白没有底色差可用，描边是唯一的边界依据，不能省。 */
 .side-card {
-  padding: 16px 18px;
+  flex: 0 0 auto;
+  padding: 16px;
   background: var(--card-bg);
   border: 1px solid var(--card-border);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-sm);
   box-shadow: var(--shadow-card);
   animation: card-in 0.3s var(--ease) both;
 }
 
+/* 「本次未关联测评」是空态提示，不是内容卡：底色不再退回 --panel-bg
+   （退回去就跟栏面同色、整张卡消失了），改用虚线描边表达「这里还没东西」 */
 .side-card.is-muted {
-  background: var(--panel-bg);
+  border-style: dashed;
 }
 
 .side-card.is-crisis {
@@ -2635,50 +3918,59 @@ onMounted(async () => {
   }
 }
 
-/* 四块依次浮现。错开的间隔（50ms）小于单块的动画时长（300ms），
-   所以看到的是「一层层铺开」而不是「一块块排队跳出来」 */
-.chat-side > :nth-child(1) {
+/* 卡片依次浮现。错开的间隔（50ms）小于单块的动画时长（300ms），
+   所以看到的是「一层层铺开」而不是「一块块排队跳出来」。
+   ⚠️ 用 `:nth-of-type` 且**从 2 开始**：右栏第一个 `div` 现在是顶部的
+   动作组（`.side-ops`，清空会话 / 推荐医生），它也是一个 div，会把
+   四张卡片的序号整体推后一位。写成 1..4 会让第一张卡拿到 90ms 的延迟、
+   最后一张拿不到延迟 —— 顺序还看得见，但不是想要的节奏。 */
+.side-card:nth-of-type(2) {
   animation-delay: 40ms;
 }
 
-.chat-side > :nth-child(2) {
+.side-card:nth-of-type(3) {
   animation-delay: 90ms;
 }
 
-.chat-side > :nth-child(3) {
+.side-card:nth-of-type(4) {
   animation-delay: 140ms;
 }
 
-.chat-side > :nth-child(4) {
+.side-card:nth-of-type(5) {
   animation-delay: 190ms;
 }
 
+/*
+ * 卡片小标题：参考页 `.panel-card h3`（14px / 700 / 无衬线，前面一枚 6px 渐变圆点）。
+ * 上一版是「衬线 + 左侧 3px 竖条」—— 竖条与圆点说的事一样（标记区块起点），
+ * 但圆点和参考页的其余部分（`.dot`、状态点）同族，竖条只在这一处出现。
+ *
+ * ⚠️ 字号 14px 属于「卡片小标题」这一档，按站内规矩走 --font-sans + 600，
+ * 不跟着 h1–h6 的衬线走 —— 否则右栏四行小字全是宋体，在屏幕上发虚。
+ */
 .side-title {
-  position: relative;
-  margin: 0 0 14px;
-  padding-left: 11px;
-  font-family: var(--font-serif);
-  font-size: 14.5px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+  font-family: var(--font-sans);
+  font-size: 14px;
   font-weight: 600;
   color: var(--text-1);
 }
 
-/* 主色竖条：与首页右栏面板标题同一套语言（左侧竖条，不画下划线）。
-   把「这里是一个区块」的信息交给图形，标题本身就不必再加重字号 */
+/* 渐变圆点：用 --grad-primary（与空态光核、主按钮同一支渐变） */
 .side-title::before {
   content: '';
-  position: absolute;
-  left: 0;
-  top: 50%;
-  width: 3px;
-  height: 13px;
-  margin-top: -6.5px;
-  border-radius: 2px;
-  background: var(--primary);
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--grad-primary);
 }
 
-/* 危机卡的竖条跟着卡片语义转红：标题文字已经是 --risk-d，
-   竖条若还是主色蓝，同一行里会出现两个互相打架的强调色 */
+/* 危机卡的圆点跟着卡片语义转红：标题文字已经是 --risk-d，
+   圆点若还是主色蓝，同一行里会出现两个互相打架的强调色 */
 .side-card.is-crisis .side-title::before {
   background: var(--risk-d);
 }
@@ -2717,11 +4009,14 @@ onMounted(async () => {
   color: var(--text-3);
 }
 
+/* 卡片内说明文字：--text-2（参考页 `.panel-card .desc` 取 --text-sub）。
+   虽然卡片是白面、--text-3 在白面上有 4.8 达标，但右栏的字都比正文小一档，
+   12.5px 还压到 --text-3 会明显发灰 —— 参考页在这一处用的是「正文色小一号」。 */
 .side-note {
   margin: 8px 0 0;
   font-size: 12.5px;
   line-height: 1.7;
-  color: var(--text-3);
+  color: var(--text-2);
 }
 
 .side-link {
@@ -2775,42 +4070,232 @@ onMounted(async () => {
   color: var(--text-2);
 }
 
+/* 免责声明：钉到栏底（`margin-top: auto`）。
+   这段在版式上属于「页脚」，不是「第五张卡片」—— 跟着卡片浮动时，
+   内容少就会发现它悬在半空，像少了一张卡的内容。
+
+   ⚠️ 颜色取 --text-2 而不是 --text-3：它直接坐在**白栏面**上，
+   白底上 --text-3 虽然 4.8 达标，但 11.5px 的小字配这一档灰明显发虚；
+   而右栏其余说明文字都是 --text-2，保持一致。
+   容器宽度由 `.chat-side` 的 flex 列确定，`auto` 在这里一定生效。 */
 .side-footnote {
-  margin: 0;
+  margin: auto 0 0;
   font-size: 11.5px;
   line-height: 1.8;
-  color: var(--text-3);
-}
-
-.side-footnote strong {
   color: var(--text-2);
 }
 
+.side-footnote strong {
+  color: var(--text-1);
+}
+
+/* 抽屉关闭键的定位已在基础规则里写死（absolute 右上），这里不再补 padding/对齐。
+   原先那条 `align-self: flex-end` 是为「按钮作为 flex 子项参与排版」写的，
+   改绝对定位后参与排版会让按钮组多出一行高度。 */
+
 /* 尊重系统「减少动态效果」设置。
-   本页新增了四类持续/入场动画：涟漪（.ai-mark）、呼吸（.live-dot / .orb-halo）、
-   自转（.orb-ring）、错峰进场（.msg / .side-card）。
+   本页有三类持续/入场动画：呼吸（.orb-halo）、错峰进场（.msg / .side-card），
+   以及粒子球自转（components/OrbNoise.vue，**组件内部自己冻结首帧**，
+   不归这条规则管 —— 它是 Canvas 绘制，CSS 的 animation 关不掉它）。
    前庭功能敏感的用户即便幅度很小也可能不适，所以整体关掉。
-   这是本页唯一用 !important 的地方 —— 元素自身的 animation 简写必须被整条覆盖，
-   「把时长设为 0」仍会保留 animation-fill-mode 的首帧位移，等于没关掉。 */
+   这是本页唯一用 !important 的地方 —— 元素自身的 animation 简写
+   必须被整条覆盖，「把时长设为 0」仍会保留 animation-fill-mode 的首帧位移，
+   等于没关掉。
+   ⚠️ `.orb-ring`（随细环删除）、`.live-dot`（随顶栏删除）、`.ai-mark`（更早一轮删除）
+      都已没有对应节点，不要留死选择器。 */
 @media (prefers-reduced-motion: reduce) {
-  .ai-mark::after,
-  .live-dot,
-  .orb-halo,
-  .orb-ring,
+  /* 冻结后停在呼吸的中点，而不是默认的满不透明度 —— 满亮度比动画平均更亮，
+     会把旁边那颗静态的粒子球压过去 */
+  .orb-halo {
+    animation: none !important;
+    opacity: 0.75;
+  }
+
   .msg,
   .side-card {
     animation: none !important;
   }
 }
 
-@media (max-width: 1024px) {
-  .chat-page {
-    grid-template-columns: minmax(0, 1fr);
-    height: auto;
+/* ==========================================================
+   响应式：右栏抽屉（参考页 1100px 断点）
+   ==========================================================
+   中屏以下把 300px 的常驻右栏收成从右侧滑出的抽屉。用 CSS 做位移动画 +
+   一个 `is-open` 类，而不是按宽度决定「渲染/不渲染」：
+   后者要在 JS 里维护一份与媒体查询重复的断点常量，两处一旦不同步就会漏渲染。
+
+   ⚠️ 抽屉状态下 `.chat-side` 是 `position: fixed`，所以它的
+   `flex: 0 0 300px` 不再参与父级分配 —— 宽度靠同时写死的 `width: 300px` 兜住。 */
+@media (max-width: 1100px) {
+  .chat-side {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    /* 必须高于唤出键（25），否则抽屉展开后唤出键会浮在抽屉上 */
+    z-index: 30;
+    transform: translateX(100%);
+    transition: transform 0.25s var(--ease);
+    box-shadow: var(--shadow-hover);
+    /*
+     * 顶部让出一条 44px 的「关闭键车道」（2026-10-22 第二十七轮）。
+     * 上一版是给动作组 `padding-right: 44px` 来避开关闭键 —— 按钮改为铺满整行后
+     * 那种做法会让按钮的右缘比卡片短 44px，「与下方对齐」就断在半路。
+     * 改成给**整栏**加顶部内边距：关闭键独占上面一条，动作组与卡片都能占到满宽。
+     */
+    padding-top: 46px;
   }
 
-  .chat-main {
-    height: 70vh;
+  .chat-side.is-open {
+    transform: translateX(0);
+  }
+
+  /* 唤出键：顶栏删除后它没有宿主，改为悬浮在视口右上角。
+     白底胶囊压在浅蓝渐变上边界清晰；`z-index` 低于抽屉，抽屉打开后被盖住
+     （此时关闭入口换成抽屉内的 ×）。 */
+  .side-toggle {
+    position: fixed;
+    top: 14px;
+    right: 14px;
+    z-index: 25;
+    display: inline-flex;
+    background: var(--card-bg);
+    box-shadow: var(--shadow-card);
+  }
+
+  .side-close {
+    display: inline-flex;
+  }
+}
+
+/* ==========================================================
+   小屏（≤560px）：留白收紧、次要按钮只留图标
+   ==========================================================
+   ⚠️ 这一段必须放在**文件末尾**（所有基础规则之后）：这里的 `.chat-body` /
+   `.chat-input` 与基础规则特异性相同，靠「位置更后」才生效。 */
+@media (max-width: 560px) {
+  /* 32px 的内边距在 375px 宽的屏上要吃掉 64px（16%），
+     留给气泡的宽度只剩约 300px —— 一句话要折三四行 */
+  /* 110px 在 375 宽的屏上会吃掉近三分之一可用高度，窄屏收到 72px；
+     桌面端仍是指定的 110px。
+     ⚠️ 72 不是随手写的：顶部导航在窄屏从 12px 起、高 50（40 按钮 + 上下各 4 内边距
+     + 上下各 1 描边），底部落在 62 —— 72 是「导航底 + 10px 呼吸」，
+     再小第一条消息就会钻到菜单下面。胶囊尺寸一变，这个数必须跟着变。 */
+  .chat-body {
+    /* 底部必须仍然跟着浮层高度走：窄屏的输入区（单行胶囊 + 建议横向滑动）
+       高度与宽屏不同，抄一个固定值会让最后一条消息被压住。 */
+    padding: 72px 14px calc(var(--chat-foot) + 40px);
+  }
+
+  /* 顶部导航同步收小：375 宽下 178px 的三枚胶囊放得下，
+     但桌面那档的厚度在窄屏会显得笨，也会让上沿那条留白显得更厚。 */
+  .chat-nav {
+    top: 12px;
+  }
+
+  .nav-menu {
+    padding: 4px;
+  }
+
+  /* 只改这几个值：宽度、高度、图标位置、标题缩进都是从它们推出来的。
+     同心算式与桌面端同一套：50 / 2 - 1 - 4 = 20 = 40 / 2。
+     高度停在 40 而不再往下压：手指点得到比「更细长」重要。 */
+  .nav-link {
+    --nav-w: 56px;
+    --nav-w-open: 104px;
+    height: 40px;
+  }
+
+  .nav-icon {
+    left: 18px;
+    width: 20px;
+    height: 20px;
+  }
+
+  .nav-title {
+    font-size: 12px;
+    text-indent: 30px;
+  }
+
+  .chat-input {
+    padding: 10px 14px 24px;
+  }
+
+  /* 追问建议在 375px 上放不下三条（每条都 nowrap），改成横向滑动、左起。
+     ⚠️ 这里必须把 `justify-content` 从 flex-end 改回 flex-start：
+     overflow 容器 + flex-end 时，超出的部分会从**左侧**溢出且滚不到，
+     第一句会被永久裁掉。隐藏滚动条是因为它是辅助区，一根滚动条
+     会把视线从输入框拉走。 */
+  .quick-row {
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    overflow-x: auto;
+    padding-bottom: 2px;
+    scrollbar-width: none;
+  }
+
+  .quick-row::-webkit-scrollbar {
+    display: none;
+  }
+
+  .quick-chip {
+    flex: none;
+  }
+
+  /* 快捷键提示在窄屏隐藏：375px 上「说说你的感受…」与「回车发送，Shift+回车换行」
+     挤在同一行胶囊里，两段文字都会变成省略号，不如只留引导语。
+     输入规则不丢 —— 回车发送本来就是主流习惯，Shift+回车在桌面端才用得上。 */
+  .composer-hint {
+    display: none;
+  }
+
+  /* ⚠️ 这里原先有一条 `.btn-ghost span { display: none }`（参考页的「窄屏只留图标」）。
+     本版「清空会话」按钮**只有文字、没有图标**（按钮从顶栏搬到右栏后，
+     图标在 300px 的栏宽里是多余的装饰），套上那条规则会让按钮变成空白方块。
+     窄屏下右栏是抽屉、宽度充足，文字本来也不需要收。故整条删除。 */
+  .btn {
+    padding: 9px 14px;
+  }
+
+  .chat-empty {
+    margin-top: 6vh;
+  }
+
+  .empty-orb {
+    width: 116px;
+    height: 116px;
+    margin-bottom: 18px;
+  }
+}
+
+/* ==========================================================
+   顶部导航的减动效
+   ==========================================================
+   ⚠️ **必须放在整个样式表最后**：下面这条要压掉 `width` 的悬停展开，而
+   ≤560 那一档也改 `--nav-w-open`，两者特异性相同 —— 谁生效只看文件位置
+   （#140）。写在导航那一段旁边的版本会被窄屏规则盖掉，症状是
+   「开了减少动态效果，窄屏上悬停仍然横移」。
+
+   不展开 = 没有「邻座被挤开」，也不会有标题滑入；选中态与悬停的底色变化
+   仍然保留 —— 那是颜色，不是位移。 */
+@media (prefers-reduced-motion: reduce) {
+  .nav-link,
+  .nav-link::before,
+  .nav-title {
+    transition: none;
+  }
+
+  /* 把「展开宽度」指回基础宽度：一处改动同时管住桌面与窄屏两档 */
+  .nav-link {
+    --nav-w-open: var(--nav-w);
+  }
+
+  /* 不展开之后，标题就没有地方可待 —— 必须按回「推到按钮外」的状态，
+     否则它会在 64px 的按钮里露出一截被裁掉的字 */
+  .nav-link:hover .nav-title,
+  .nav-link:focus-visible .nav-title {
+    opacity: 0;
+    transform: translateX(100%);
   }
 }
 </style>
