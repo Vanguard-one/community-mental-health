@@ -4,136 +4,105 @@
     <PageHeader title="医生咨询" :subtitle="headerSubtitle" />
 
     <!--
-      加载占位：复用 CardGridSkeleton（内部样式由统一改造负责）。
-      min 必须与下方 .doctor-grid 的列宽下限一致（324 = --grid-col-w），否则列数会跳。
+      两级结构：左一级是科室（+ 我的预约），右二级是该科室的医生横条列表。
+      一级菜单只放「科室 + 我的预约」两样东西 —— 全站已经有 64px 侧栏，
+      再在一级菜单里放首页/个人中心会让两套导航并排存在、互相失效。
     -->
-    <CardGridSkeleton v-if="loading && !catalog.length" :count="6" :min="324" />
+    <div class="split">
+      <AppointmentSubNav
+        :departments="catalog"
+        :total="totalDoctors"
+        :active-key="currentDept"
+        @select="selectDept"
+        @mine="router.push('/appointments')"
+      />
 
-    <template v-else-if="catalog.length">
-      <!--
-        科室分类条：横向 chip，装在**一张 L1 白卡**里。
-        为什么必须放进白卡：未选中态是「透明底 + --text-2」，悬停才给 --panel-bg。
-        若把这条 chip 直接铺在页面底上，--panel-bg 与页面底只差约 1.04:1（等于隐形），
-        整条筛选器会连悬停反馈一起消失（三级面硬规则①）。
-        选中态走 L3 主色实底 + 白字（5.17:1）；**不用** --primary-soft 填底 ——
-        「--primary 文字 + --primary-soft 底」只有 4.44:1，差一点不达 AA。
-      -->
-      <nav v-reveal="'stagger'" class="dept-bar" aria-label="按科室筛选医生">
-        <button
-          type="button"
-          class="dept-chip"
-          :class="{ active: !currentDept }"
-          data-anim="chrome"
-          @click="selectDept('')"
-        >
-          全部科室
-        </button>
-        <button
-          v-for="g in catalog"
-          :key="g.department"
-          type="button"
-          class="dept-chip"
-          :class="{ active: g.department === currentDept }"
-          data-anim="chrome"
-          @click="selectDept(g.department)"
-        >
-          {{ g.department }}
-        </button>
-      </nav>
+      <div class="split-main">
+        <ListSkeleton v-if="loading && !catalog.length" :count="5" />
 
-      <!-- 医生网格：`grid` recipe 按 90ms 依次揭示每张卡 -->
-      <div v-if="visibleDoctors.length" v-reveal="'grid'" class="doctor-grid">
-        <article v-for="d in visibleDoctors" :key="d.doctorId" class="doctor-card">
-          <header class="dc-head">
-            <RoleAvatar class="dc-avatar" role="doctor" :size="48" />
-            <div class="dc-ident">
-              <h3 class="dc-name">
-                {{ d.doctorName }}
-                <span v-if="d.title" class="dc-title">{{ d.title }}</span>
-              </h3>
-              <p class="dc-meta">
-                <span class="dc-rating">★ <span class="mono">{{ d.rating?.toFixed(1) ?? '—' }}</span></span>
-                · 接诊 <span class="mono">{{ d.currentLoad ?? 0 }}</span> 人次
-              </p>
-            </div>
-          </header>
+        <template v-else-if="catalog.length">
+          <!-- 列表头：交代「当前在哪一类、有几个人」，避免用户点了科室后不知所处 -->
+          <p class="list-head">
+            <b>{{ currentDept || '全部科室' }}</b>
+            <span class="lh-count mono">{{ visibleDoctors.length }}</span>
+            <span class="lh-hint">位医生</span>
+            <span class="lh-tip">选好医生后可直接预约时间段</span>
+          </p>
 
-          <!-- 科室标识：DeptIcon 科室砖 + 科室名 -->
-          <div v-if="d.department" class="dc-dept">
-            <DeptIcon :name="d.department || ''" />
-            <span class="dc-dept-name">{{ d.department }}</span>
+          <div v-if="visibleDoctors.length" v-reveal="'stagger'" class="doc-list">
+            <DoctorRow
+              v-for="d in visibleDoctors"
+              :key="d.doctorId"
+              :doctor="d"
+              @book="goBook"
+              @chat="goChat"
+            />
           </div>
 
-          <!-- 专长：描边 chip（不用实底，避免「主色文字压浅底」的对比度问题） -->
-          <div v-if="tagsOf(d).length" class="dc-tags">
-            <span v-for="t in tagsOf(d)" :key="t" class="dc-tag">{{ t }}</span>
+          <!--
+            空态：白卡 + 说明 + 「换个科室」。
+            ⚠️ 说明文字落白面，只能用 --text-2 —— --text-3 落在白面是 4.8:1（刚好过），
+               但它落 --panel-bg 只有 4.27:1。这里为了和其它页的空态保持一致，统一用 --text-2。
+          -->
+          <div v-else v-reveal="'rise'" class="empty-card">
+            <span class="empty-mark" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="1.8" />
+                <path d="M16 16 21 21" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+              </svg>
+            </span>
+            <p class="empty-title">该科室暂无医生</p>
+            <p class="empty-desc">医生可能正在调整出诊安排，先看看其他科室。</p>
+            <button type="button" class="btn-ghost" @click="selectDept('')">换个科室</button>
           </div>
+        </template>
 
-          <button type="button" class="consult-btn" @click="goChat(d)">
-            {{ d.sessionId ? '继续聊天' : '发起咨询' }}
-          </button>
-        </article>
+        <!-- 目录整体为空：白卡空态 -->
+        <div v-else class="empty-card">
+          <span class="empty-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none">
+              <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="1.8" />
+              <path d="M16 16 21 21" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+            </svg>
+          </span>
+          <p class="empty-title">暂无可咨询的医生</p>
+          <p class="empty-desc">医生通过资质审核后会自动出现在这里，请稍后再来。</p>
+        </div>
+
+        <p class="footnote">
+          这里列出的是全部可咨询的医生。若你已经和某位医生聊过，他的对话会出现在
+          <span class="link" @click="router.push('/messages')">我的消息</span> 里；
+          已提交的预约在 <span class="link" @click="router.push('/appointments')">我的预约</span> 里。
+        </p>
       </div>
-
-      <!--
-        空态：白卡 + --panel-bg 圆标 + 说明 + 「换个科室」。
-        ⚠️ 圆标里的图形落 --panel-bg 上，只能用 --text-2 —— --text-3 在浅分区只有
-           4.27:1，不到 AA（硬约定 #12 的对比度那一档）。
-      -->
-      <div v-else v-reveal="'rise'" class="empty-card">
-        <span class="empty-mark" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none">
-            <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="1.8" />
-            <path d="M16 16 21 21" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
-          </svg>
-        </span>
-        <p class="empty-title">该科室暂无医生</p>
-        <p class="empty-desc">医生可能正在调整出诊安排，先看看其他科室。</p>
-        <button type="button" class="btn-ghost" @click="selectDept('')">换个科室</button>
-      </div>
-    </template>
-
-    <!-- 目录整体为空：白卡空态 -->
-    <div v-else class="empty-card">
-      <span class="empty-mark" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="none">
-          <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="1.8" />
-          <path d="M16 16 21 21" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
-        </svg>
-      </span>
-      <p class="empty-title">暂无可咨询的医生</p>
-      <p class="empty-desc">医生通过资质审核后会自动出现在这里，请稍后再来。</p>
     </div>
-
-    <p class="footnote">
-      这里列出的是全部可咨询的医生。若你已经和某位医生聊过，他的对话会出现在
-      <span class="link" @click="router.push('/messages')">我的消息</span> 里。
-    </p>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import CardGridSkeleton from '@/components/CardGridSkeleton.vue'
-import DeptIcon from '@/components/DeptIcon.vue'
-import RoleAvatar from '@/components/RoleAvatar.vue'
+import AppointmentSubNav from '@/components/AppointmentSubNav.vue'
+import DoctorRow from '@/components/DoctorRow.vue'
+import ListSkeleton from '@/components/ListSkeleton.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import { listDoctorCatalog } from '@/api/chat'
 import type { ChatPeer, DepartmentGroup } from '@/types'
 
 /**
- * 「医生咨询」页（`/doctors`）。
+ * 「医生咨询」页（`/doctors`）—— 两级结构。
  *
- * 一级结构：页头 → 科室分类条（L1 白卡里的横向 chip）→ 医生卡网格。
+ * 一级：科室（含「全部科室」与「我的预约」）；二级：该科室下的医生横条列表。
  * 选中的科室用 `?dept=` 同步，不做成子路由：
  * ① 两个视图共用同一份「医生目录」数据，拆路由会让每个路由各自请求一次同样的接口；
  * ② 科室名是中文，放进路径段要反复编码解码，query 天然处理。
- * `?dept=` 缺省（或非法）时退化为「全部科室」，刷新与分享链接都能还原到同一个视图 ——
- * 这是 query 相对组件内 state 的唯一优势，也是这里选它的原因。
+ * `?dept=` 缺省（或非法）时退化为「全部科室」，刷新与分享链接都能还原到同一个视图。
  *
  * <p>与 AI 推荐结果页（`/ai-recommend`）的分工：那边是「AI 替你挑好了」，
  * 这边是「你自己按科室挑」。两种意图都真实存在，合并会牺牲其中一边。
+ *
+ * <p>⚠️ 这里的医生卡是 `DoctorRow`（横条），**不是** `RecommendedDoctors`（网格 + 匹配依据）。
+ * 理由写在 `DoctorRow.vue` 顶部：形态与语义都不同，合并只会让两边都长出分支参数。
  */
 const route = useRoute()
 const router = useRouter()
@@ -164,17 +133,9 @@ const totalDoctors = computed(() => catalog.value.reduce((n, g) => n + g.doctors
 /** 页头说明句：把「几个科室、多少位医生」先交代清楚 */
 const headerSubtitle = computed(() =>
   catalog.value.length
-    ? `共 ${catalog.value.length} 个科室 · ${totalDoctors.value} 位医生，选好医生即可开始一对一沟通`
-    : '按科室找到合适的医生，随时开始一对一沟通',
+    ? `共 ${catalog.value.length} 个科室 · ${totalDoctors.value} 位医生，选好医生即可预约时间段或直接咨询`
+    : '按科室找到合适的医生，预约时间段或直接开始一对一沟通',
 )
-
-/** 单个医生的专长标签（后端存逗号分隔字符串，中英文逗号都容错） */
-function tagsOf(d: ChatPeer): string[] {
-  return (d.expertiseTags || '')
-    .split(/[,，]/)
-    .map((t) => t.trim())
-    .filter(Boolean)
-}
 
 function selectDept(dept: string) {
   router.push({ path: '/doctors', query: dept ? { dept } : {} })
@@ -189,6 +150,11 @@ function selectDept(dept: string) {
  */
 function goChat(d: ChatPeer) {
   router.push(`/messages/${d.doctorId}`)
+}
+
+/** 去预约该医生的时间段 */
+function goBook(d: ChatPeer) {
+  router.push(`/doctors/${d.doctorId}/book`)
 }
 
 async function load() {
@@ -214,293 +180,164 @@ async function load() {
  * 同页内只换 `?dept=` 时组件不重挂（`App.vue` 的错误边界 key 取 `path` 而非 `fullPath`），
  * 由上面的 computed 原地响应 —— 这两种情况合起来已穷尽，中间没有第三种状态。
  *
- * 曾经这里有一条 `watch(() => route.path, p => p === '/doctors' && load())`：
- * 它要求「本页还活着、而 path 又刚变成 /doctors」，可 path 一变本页就卸载，条件永假。
- * 这类**看似在补一个场景、实则永远不会触发**的守卫比没有更糟 —— 它会让人以为覆盖了
- * 返回刷新，从而不去检查真正负责它的是 `onMounted`。
- *
  * ⚠️ 数据新鲜度：离开再回来会重新拉。这是刻意的 —— 期间医生可能刚通过审核或被下架。
  */
 onMounted(load)
 </script>
 
 <style scoped>
-/* ---------- 科室分类条 ---------- */
-.dept-bar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 14px 18px;
-  margin-bottom: var(--space-card);
-  background: var(--card-bg);
-  border: 1px solid var(--card-border);
-  border-radius: var(--radius-sm);
-  box-shadow: var(--shadow-card);
-}
+/* ---------- 两级布局 ---------- */
 
 /*
- * 未选中：透明底 + --text-2（它落在上方白卡内部，不是直接贴页面底，
- * 所以透明底成立）；悬停给 --panel-bg。
- * 选中：L3 主色实底 + 白字（5.17:1）。
+ * 左一级 200px 固定（菜单项是「科室名 + 数字」，再窄就换行），
+ * 右二级自适应。`align-items: start` 让左栏在内容变长时不被拉高 ——
+ * 否则 sticky 侧栏会比视口还高，滚动时反而不跟随。
  */
-.dept-chip {
-  height: 34px;
-  padding: 0 16px;
-  border: 1px solid transparent;
-  border-radius: var(--radius-pill);
-  background: transparent;
-  color: var(--text-2);
-  font-family: inherit; /* 原生 button 不继承 body 字体，不写会落回系统 UI 字体 */
-  font-size: 13.5px;
-  cursor: pointer;
-  transition:
-    background var(--dur) var(--ease),
-    border-color var(--dur) var(--ease),
-    color var(--dur) var(--ease);
-}
-
-.dept-chip:hover {
-  background: var(--panel-bg);
-}
-
-.dept-chip.active {
-  background: var(--primary);
-  border-color: var(--primary);
-  color: var(--on-primary);
-  font-weight: 600;
-}
-
-.dept-chip.active:hover {
-  background: var(--primary-dark);
-  border-color: var(--primary-dark);
-}
-
-/* ---------- 医生卡网格 ---------- */
-/*
- * 列宽取 --grid-col-w（324px，居民端卡片单列宽的唯一真源），卡间距取 --space-card。
- * 内容区最宽 1288px（--content-max 1344 − 两侧 --content-pad 28×2），
- * 于是每行 floor((1288 + 20) / (324 + 20)) = 3 列，每列约 416px —— 正好是
- * 「≥3 列、卡宽约 400px」的目标。窄屏由 auto-fill 自动降为 2 / 1 列，无需媒体查询。
- * ⚠️ 骨架屏 CardGridSkeleton 的 min 必须与这里的下限一致（324），否则列数会跳。
- */
-.doctor-grid {
+.split {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(var(--grid-col-w), 1fr));
+  grid-template-columns: 200px minmax(0, 1fr);
   gap: var(--space-card);
+  align-items: start;
 }
 
-.doctor-card {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  padding: var(--space-inner);
-  background: var(--card-bg);
-  border: 1px solid var(--card-border);
-  /* 网格里的医生卡属于「内卡」→ --radius-sm(16)，不是页面级大卡的 --radius-lg */
-  border-radius: var(--radius-sm);
-  box-shadow: var(--shadow-card);
-  transition:
-    box-shadow var(--dur) var(--ease),
-    transform var(--dur) var(--ease),
-    border-color var(--dur) var(--ease);
-}
-
-.doctor-card:hover {
-  border-color: var(--primary);
-  box-shadow: var(--shadow-hover);
-  transform: translateY(-2px);
-}
-
-.dc-head {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-}
-
-/* 尺寸与配色由 `RoleAvatar` 自理 */
-.dc-avatar {
-  flex: none;
-}
-
-.dc-ident {
-  flex: 1;
+/* min-width: 0 不可省：grid 子项默认 min-width:auto，
+   不写这条时长专长文本会把整列撑出容器，页面出现横向滚动 */
+.split-main {
   min-width: 0;
 }
 
-/* 卡片级小标题：走 --font-sans + 600（与 Home.vue 的 .card-head h3 同一约定），
-   不继承全局 h1-h6 的宋体 */
-.dc-name {
+/* 断点用 900 而不是 768：左栏 200 + 间距 20 + 右栏最小可用宽度约 560
+   才不至于把医生卡挤成两行 —— 900 是「右栏还够宽」的下限 */
+@media (max-width: 900px) {
+  .split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ---------- 列表头 ---------- */
+
+.list-head {
   display: flex;
   align-items: baseline;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 0;
-  font-family: var(--font-sans);
-  font-size: 16.5px;
-  font-weight: 600;
-  color: var(--text-1);
-}
-
-/* 职称徽标：患者挑医生时最常看这一项。
-   ⚠️ --primary-soft 底 + --primary 字只有 4.44:1（差一点不达 AA），
-      所以文字改用同色相深一档的 --primary-dark（5.71:1）。 */
-.dc-title {
-  padding: 2px 8px;
-  border-radius: var(--radius-pill);
-  background: var(--primary-soft);
-  color: var(--primary-dark);
-  font-family: var(--font-sans);
-  font-size: 11.5px;
-  font-weight: 500;
-}
-
-/* 元信息落在白卡上 → --text-3 的 4.8:1 成立 */
-.dc-meta {
-  margin: 5px 0 0;
-  font-size: 12.5px;
-  color: var(--text-3);
-}
-
-.dc-rating {
-  color: var(--text-1);
-  font-weight: 600;
-}
-
-.dc-dept {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.dc-dept-name {
-  font-size: 13.5px;
-  color: var(--text-2);
-}
-
-.dc-tags {
-  display: flex;
-  flex-wrap: wrap;
   gap: 6px;
+  margin: 0 0 12px;
+  color: var(--text-2);
+  font-size: 13px;
 }
 
-/* 专长标签：描边 chip，不用实底 */
-.dc-tag {
-  padding: 3px 10px;
-  border: 1px solid var(--card-border);
-  border-radius: var(--radius-pill);
-  background: var(--card-bg);
+.list-head b {
+  color: var(--text-1);
+  font-size: 14.5px;
+  font-weight: 600;
+}
+
+.lh-count {
+  color: var(--primary-dark);
+  font-size: 14.5px;
+  font-weight: 600;
+}
+
+.lh-hint {
   color: var(--text-2);
+}
+
+/* 右侧提示推到最右；窄屏隐藏（挤不下时它会先换行，把列表头撑成两行） */
+.lh-tip {
+  margin-left: auto;
+  color: var(--text-3);
   font-size: 12px;
 }
 
-/* 主色实底按钮贴底：卡片高低不一时按钮仍对齐同一水平线 */
-.consult-btn {
-  margin-top: auto;
-  height: 40px;
-  padding: 0 18px;
-  border: 1px solid var(--primary);
-  border-radius: var(--radius-pill);
-  background: var(--primary);
-  color: var(--on-primary);
-  font-family: inherit;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  transition:
-    background var(--dur) var(--ease),
-    border-color var(--dur) var(--ease);
+@media (max-width: 640px) {
+  .lh-tip {
+    display: none;
+  }
 }
 
-.consult-btn:hover {
-  background: var(--primary-dark);
-  border-color: var(--primary-dark);
+.doc-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 /* ---------- 空态 ---------- */
+
 .empty-card {
   display: flex;
   flex-direction: column;
   align-items: center;
-  text-align: center;
-  padding: 48px 24px;
-  background: var(--card-bg);
+  padding: 44px 24px;
   border: 1px solid var(--card-border);
   border-radius: var(--radius-sm);
+  background: var(--card-bg);
   box-shadow: var(--shadow-card);
+  text-align: center;
 }
 
-/* --panel-bg 圆标：卡内浅色分区只用底色区分，不再叠阴影（硬规则②）；
-   图形色用 --text-2（--text-3 落 --panel-bg 上只有 4.27:1） */
 .empty-mark {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 64px;
-  height: 64px;
-  margin-bottom: 16px;
+  width: 52px;
+  height: 52px;
+  margin-bottom: 14px;
   border-radius: 50%;
   background: var(--panel-bg);
+  /* 图形落 --panel-bg，只能用 --text-2（--text-3 在浅分区只有 4.27:1） */
   color: var(--text-2);
 }
 
 .empty-mark svg {
-  display: block;
-  width: 26px;
-  height: 26px;
+  width: 24px;
+  height: 24px;
 }
 
 .empty-title {
   margin: 0 0 6px;
+  color: var(--text-1);
   font-family: var(--font-sans);
   font-size: 15px;
   font-weight: 600;
-  color: var(--text-1);
 }
 
 .empty-desc {
-  margin: 0 0 18px;
-  font-size: 13px;
+  margin: 0 0 16px;
   color: var(--text-2);
+  font-size: 13px;
+  line-height: 1.7;
 }
 
-/* 次按钮：白底 + 控件描边，悬停转主色 */
 .btn-ghost {
-  height: 36px;
-  padding: 0 20px;
-  border: 1px solid var(--ctrl-border);
-  border-radius: var(--radius-pill);
-  background: var(--card-bg);
-  color: var(--text-2);
+  height: 34px;
+  padding: 0 16px;
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-ctrl);
+  background: transparent;
+  color: var(--text-1);
   font-family: inherit;
-  font-size: 13.5px;
-  font-weight: 600;
+  font-size: 13px;
   cursor: pointer;
-  transition:
-    border-color var(--dur) var(--ease),
-    color var(--dur) var(--ease);
+  transition: border-color var(--dur) var(--ease), color var(--dur) var(--ease);
 }
 
 .btn-ghost:hover {
-  border-color: var(--primary);
-  color: var(--primary);
+  border-color: var(--primary-dark);
+  color: var(--primary-dark);
 }
 
 /* ---------- 页脚说明 ---------- */
-/*
- * ⚠️ 直接贴页面底的文字不能用 --text-3（贴底只有 3.60:1，不到 AA）→ 用 --text-2（约 5.4:1）。
- * 行内的「我的消息」链接同理：--primary 贴底只有约 3.6~3.9:1，
- * 改用同色相深一档的 --primary-dark（约 4.6~5.0:1）。
- */
+
 .footnote {
-  margin: var(--space-block) 0 0;
-  font-size: 12px;
+  margin: 18px 0 0;
+  color: var(--text-3);
+  font-size: 12.5px;
   line-height: 1.8;
-  color: var(--text-2);
 }
 
 .link {
   color: var(--primary-dark);
   cursor: pointer;
   text-decoration: underline;
+  text-underline-offset: 2px;
 }
 </style>

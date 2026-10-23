@@ -9,6 +9,22 @@
         —— 这是一处**跨文件连锁**：问卷页、AI 问诊页、专有聊天页都写死过这个算式。
   -->
   <div class="app-shell">
+    <!--
+      居民端整页插画底（2026-10-23）。纯装饰：`aria-hidden` + `pointer-events: none`，
+      不参与布局、不接收事件，也不进入任何页面的尺寸计算。
+
+      它挂在**布局根节点**而不是 body 上，这是对硬约定 #110（背景唯一真源在 body）
+      的一次刻意例外，理由只有一个：**只有居民端要这张图**，管理端与登录页保持渐变。
+      而 body 是全局的，改它就等于三端一起换。
+      兜底关系没变：body 的 `--app-bg` 仍是页面底，这一层只是画在它上面的图，
+      图画不出来（拦截、离线、解码失败）时看到的仍是渐变或 `--bg-art-fallback`。
+
+      用 `position: fixed` 而不是 body 的 `background-attachment: fixed`：
+      后者在移动端 Safari 上会被当成「相对整个文档高度」的定位区域，
+      滚动时图会跳；再叠 `cover` 基本不可控。固定层没有这个问题。
+    -->
+    <div class="bg-art" aria-hidden="true" />
+
     <SideRail
       :items="navItems"
       :active="activePath"
@@ -72,10 +88,18 @@ const NAV: { path: string; label: string; icon: Component }[] = [
 ]
 
 /**
- * 只有「我的消息」带角标：其余导航项没有「等我处理的东西」这层语义，
+ * 只有「我的消息」和「通知」带角标：其余导航项没有「等我处理的东西」这层语义，
  * 给它们加数字只会稀释角标的意义。
- * 数据来自 `inbox` store（服务端 `/chat/unread`），与医生端是同一个来源 ——
- * 所以「红点的样式与触发条件两端一致」不是靠约定，而是同一份数据 + 同一个组件。
+ *
+ * 两个角标口径不同，也不该相同：
+ * - 「我的消息」是**有未读消息的会话数**（一位医生发来 5 条也只算 1）；
+ * - 「通知」是**未读通知条数**（逐条计）。
+ *   数据都来自 `inbox` store，与医生端是同一个来源 ——
+ *   所以「红点的样式与触发条件三端一致」不是靠约定，而是同一份数据 + 同一个组件。
+ *
+ * ⚠️ 两张角标**不能合并成一个数字**：一个是会话数、一个是条数，
+ * 合成一个之后「点开一条通知该减多少」就说不清了，用户也分不清
+ * 那个数字是在说消息还是说通知（两个图标 Mail / Bell 本来就是分开的）。
  *
  * 「我的记录」**刻意不在这里**：它只允许从首页「最近一次测评」面板的
  * 「全部记录 →」进入（见 Home.vue）。导航栏是常驻入口，挂在这里等于
@@ -83,15 +107,23 @@ const NAV: { path: string; label: string; icon: Component }[] = [
  * 移出后该页面仍可正常访问（路由不变），只是不再有常驻入口。
  */
 const navItems = computed<RailItem[]>(() =>
-  NAV.map((item) =>
-    item.path === '/messages'
-      ? {
-          ...item,
-          badge: inbox.sessionCount,
-          badgeTip: `${inbox.sessionCount} 位医生发来新消息`,
-        }
-      : { ...item },
-  ),
+  NAV.map((item) => {
+    if (item.path === '/messages') {
+      return {
+        ...item,
+        badge: inbox.sessionCount,
+        badgeTip: `${inbox.sessionCount} 位医生发来新消息`,
+      }
+    }
+    if (item.path === '/notifications') {
+      return {
+        ...item,
+        badge: inbox.noticeCount,
+        badgeTip: `${inbox.noticeCount} 条未读通知`,
+      }
+    }
+    return { ...item }
+  }),
 )
 
 const userTip = computed(() => `${authStore.realName || '居民'} · 居民用户`)
@@ -124,6 +156,39 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+/*
+ * 整页插画底。层级 0，内容区（.content-layer）是 1、侧栏（.rail）是 40，
+ * 所以它天然在所有东西下面，不需要给任何页面抬 z-index。
+ *
+ * `background-color` 必须留着：JPEG 解码完成前浏览器会先画它，
+ * 没有它会闪一帧白底（在浅色页面上像是「背景闪了一下」）。
+ */
+.bg-art {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-color: var(--bg-art-fallback);
+  background-image: url('/app-bg-resident.jpg');
+  background-repeat: no-repeat;
+  /* 1920×1080：16:9 视口下 1:1 呈现（人物在左下、楼房在右下、中间是空云团），
+     宽屏裁上下、竖屏裁左右 —— 竖屏正好只剩中间那片云，单栏内容不会和插画打架 */
+  background-position: center center;
+  background-size: cover;
+}
+
+/*
+ * 压噪音的浅遮罩：插画是「蓝天 + 白云 + 人物 + 楼房」，卡与卡之间的窄缝会透出来。
+ * 目的**不是**提对比度（实测白卡 vs 均亮已有 1.54:1，比原渐变的 1.32 还高），
+ * 而是把细节压到「背景」这一档。要调浓淡只改 `--bg-art-veil` 一个 token。
+ */
+.bg-art::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--bg-art-veil);
+}
+
 .app-shell {
   min-height: 100vh;
 }

@@ -41,6 +41,21 @@ const routes: RouteRecordRaw[] = [
       // 医生咨询：两级结构，用 ?dept= 同步（科室分类 → 该科室医生列表）。
       // 与 /ai-recommend 分工不同：那边是「AI 替你挑好了」，这边是「自己按科室挑」。
       { path: 'doctors', name: 'doctors', component: () => import('@/views/recommend/DoctorConsult.vue') },
+      /*
+        预约三步页：选时间 → 填信息 → 成功。
+        doctorId 走路径参数而不是 query：刷新、分享、后退都要能还原到同一个医生的号源。
+      */
+      {
+        path: 'doctors/:doctorId/book',
+        name: 'doctor-booking',
+        component: () => import('@/views/appointment/Booking.vue'),
+      },
+      /*
+        我的预约：与「医生咨询」共用左侧一级菜单，但独立成品页。
+        不塞进 /doctors 的第二个视图 —— 那会让一个页面背两套完全不同的取数与布局，
+        且浏览器后退无法在「选医生」与「我的预约」之间正确回退。
+      */
+      { path: 'appointments', name: 'appointments', component: () => import('@/views/appointment/MyAppointments.vue') },
       // AI 推荐结果页：AI 问诊中用户同意接受推荐后跳到这里（带 ?sessionId=）
       {
         path: 'ai-recommend',
@@ -113,6 +128,27 @@ const routes: RouteRecordRaw[] = [
         name: 'admin-users',
         component: () => import('@/views/doctor/ResidentInfo.vue'),
         meta: { roles: ['DOCTOR'] },
+      },
+      // 预约设置：医生配自己的出诊时段与人数上限 —— 居民端所有号源都来自这里。
+      // 收紧为 DOCTOR：后端 /schedule 的写接口每个都独立断言 DOCTOR，
+      // 管理员进来只会拿到业务 403，所以干脆不给入口。
+      {
+        path: 'schedule',
+        name: 'admin-schedule',
+        component: () => import('@/views/doctor/ScheduleConfig.vue'),
+        meta: { roles: ['DOCTOR'] },
+      },
+      /*
+        通知中心（医生/管理员侧）。复用居民端同一个组件 ——
+        `GET /notification/my` 本来就是「按当前登录者查自己的通知」，
+        医生收到的「新预约」「预约已取消」都在这里。
+        props 传 admin: true 是为了让内边距由 AdminLayout 承担（见组件顶部注释）。
+      */
+      {
+        path: 'notifications',
+        name: 'admin-notifications',
+        component: () => import('@/views/notification/NotificationList.vue'),
+        props: { admin: true },
       },
     ],
   },

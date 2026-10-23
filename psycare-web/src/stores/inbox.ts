@@ -1,11 +1,23 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { getUnread, markSessionRead } from '@/api/chat'
+import { getUnreadNotificationCount } from '@/api/notification'
 import { useAuthStore } from './auth'
 import type { ChatUnread } from '@/types'
 
 /**
- * 未读收件箱 —— 医生端侧栏与居民端顶部导航红点的**唯一**数据源。
+ * 未读收件箱 —— 三端侧栏导航红点的**唯一**数据源。
+ *
+ * <h3>两类未读，两个字段，不合并</h3>
+ *
+ * | 字段 | 来源 | 口径 | 角色 |
+ * |---|---|---|---|
+ * | `sessionCount` / `messageCount` | `/chat/unread` | 有未读消息的**会话数** / 未读**消息条数** | DOCTOR / RESIDENT |
+ * | `noticeCount` | `/notification/unread-count` | 未读通知的**条数** | 全部角色 |
+ *
+ * 为什么不合并成一个数字：一个会话里 5 条未读只算 1 个会话，而通知是逐条计数的。
+ * 合并之后「点开一条通知该减多少」就再也说不清了，而且侧栏上本来就是
+ * 两个菜单项、两个角标（Mail 与 Bell），各对应自己的口径。
  *
  * <h3>为什么要单独一个 store</h3>
  *
@@ -15,15 +27,16 @@ import type { ChatUnread } from '@/types'
  * 甚至不是同一个接口（医生端 `/chat/sessions`、居民端 `/chat/doctors`），
  * 口径迟早漂移成两套。
  *
- * 收成一个 store 之后：数字从服务端 `/chat/unread` 来，一次 COUNT、
- * 两端同一个字段；前端只负责渲染。**两端红点表现一致因此是结构上的事实**，
- * 而不是两边各自小心的结果。
+ * 收成一个 store 之后：数字从服务端来，一次 COUNT、三端同一个字段；
+ * 前端只负责渲染。**三端红点表现一致因此是结构上的事实**，
+ * 而不是三边各自小心的结果。
  *
  * <h3>「读过」由谁决定</h3>
  *
- * 由**看到消息的人**决定，不由「调了哪个接口」决定：聊天页在前台、有未读时才
- * 调 {@link markRead}。所以标记动作放在 ChatPanel（它知道页面可见性与消息列表），
- * 而本 store 只负责把结果落到数字上并广播出去。
+ * 由**看到内容的人**决定，不由「调了哪个接口」决定：聊天页在前台、有未读时才
+ * 调 {@link markRead}；通知页打开某条的弹层时才调 {@link markNoticeRead}。
+ * 所以标记动作放在页面（它知道用户真的看到了什么），
+ * 而本 store 只负责把结果落到数字上。
  */
 
 /**
@@ -40,8 +53,10 @@ export const useInboxStore = defineStore('inbox', () => {
   const sessionCount = ref(0)
   /** 未读消息总条数 —— 列表顶部的汇总文案用 */
   const messageCount = ref(0)
+  /** 未读通知条数 —— 「通知」菜单的角标。逐条计，与 sessionCount 不同口径 */
+  const noticeCount = ref(0)
 
-  const hasUnread = computed(() => sessionCount.value > 0)
+  const hasUnread = computed(() => sessionCount.value > 0 || noticeCount.value > 0)
 
   /**
    * 写入一次查询结果。
@@ -55,22 +70,47 @@ export const useInboxStore = defineStore('inbox', () => {
   }
 
   /**
-   * 拉一次未读汇总。
+   * 拉一次全部未读。
    *
-   * 管理员直接返回：/chat 系列接口限定 DOCTOR/RESIDENT，管理员调它必定 403，
+   * 两类请求互不依赖，并发发出；某一类失败不影响另一类（各自 catch 兜住）——
+   * 通知接口超时不该让消息角标跟着消失。
+   */
+  async function refresh() {
+    await Promise.all([refreshChat(), refreshNotice()])
+  }
+
+  /**
+   * 对话未读。
+   *
+   * 管理员直接清空：`/chat` 系列接口限定 DOCTOR/RESIDENT，管理员调它必定 403，
    * 而拦截器会把 403 弹成一条错误提示 —— 侧栏每次挂载都弹一次「无权限」是纯噪音。
    * 角色判断放在这里，调用方（两个布局）就不必各自写一遍。
    */
-  async function refresh() {
+  async function refreshChat() {
     const role = useAuthStore().role
     if (role !== 'DOCTOR' && role !== 'RESIDENT') {
-      reset()
+      sessionCount.value = 0
+      messageCount.value = 0
       return
     }
     try {
       apply(await getUnread())
     } catch {
       // 红点只是提醒：拿不到就当没有（不亮），不该因为一个角标把界面打崩
+    }
+  }
+
+  /**
+   * 通知未读。
+   *
+   * 不判角色：`/notification` 是按 `user_id` 查的，管理员也有自己的站内信
+   * （系统公告、预警）；它也没有 `requireRole`，三种角色都调得通。
+   */
+  async function refreshNotice() {
+    try {
+      noticeCount.value = (await getUnreadNotificationCount()) ?? 0
+    } catch {
+      // 同上：角标拿不到就当没有
     }
   }
 
@@ -89,10 +129,26 @@ export const useInboxStore = defineStore('inbox', () => {
     }
   }
 
+  /**
+   * 点开一条通知之后调用 —— 本地减一。
+   *
+   * <p>不再请求一次：调用方（通知页的 `open`）已经发过
+   * `POST /notification/{id}/read`，而「点开一条 = 未读减一」在这里是**确定的** ——
+   * 不像对话那样一个会话里可能有多条未读、减多少要看服务端返回的汇总。
+   * 少一次往返，也就没有「已经读过了、红点还亮着」的中间态。
+   *
+   * <p>`Math.max(0, …)` 不是防御性编程：轮询还没回来时本地可能是 0，
+   * 减成 -1 的话角标虽然不显示（`v-if="count > 0"`），但悬浮提示会写着「-1 条未读」。
+   */
+  function markNoticeRead() {
+    noticeCount.value = Math.max(0, noticeCount.value - 1)
+  }
+
   /** 登出时清空 —— 否则换账号登录会先看到上一个人的红点数字 */
   function reset() {
     sessionCount.value = 0
     messageCount.value = 0
+    noticeCount.value = 0
   }
 
   /*
@@ -126,9 +182,12 @@ export const useInboxStore = defineStore('inbox', () => {
   return {
     sessionCount,
     messageCount,
+    noticeCount,
     hasUnread,
     refresh,
+    refreshNotice,
     markRead,
+    markNoticeRead,
     reset,
     startPolling,
     stopPolling,

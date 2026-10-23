@@ -52,6 +52,8 @@ import {
   DatabaseOutlined,
   PictureOutlined,
   FormOutlined,
+  CalendarOutlined,
+  BellOutlined,
 } from '@ant-design/icons-vue'
 import SideRail from '@/components/SideRail.vue'
 import type { RailItem } from '@/components/SideRail.vue'
@@ -194,6 +196,38 @@ const ALL_MENU = computed<(RailItem & { adminOnly: boolean; doctorOnly: boolean 
     doctorOnly: true,
     badge: 0,
     badgeTip: '',
+  },
+  {
+    // 预约设置：医生配自己的出诊时段与人数上限。居民端所有号源都来自这里，
+    // 所以它是「医生能做什么」的一部分，不是管理职能 —— 管理员不给入口
+    //（后端 /schedule 的写接口每个都独立断言 DOCTOR）。
+    path: '/admin/schedule',
+    label: '预约设置',
+    icon: CalendarOutlined,
+    adminOnly: false,
+    doctorOnly: true,
+    badge: 0,
+    badgeTip: '',
+  },
+  {
+    /*
+     * 通知中心：医生在这里看「新预约」「预约已取消」，管理员在这里看系统与预警消息。
+     * 与居民端 `/notifications` 是同一个组件、同一个接口 —— 通知从来就是「按登录者查自己的」。
+     *
+     * 角标口径与「消息列表」不同，所以两个各自都要有：
+     *   · 消息列表 = 有未读消息的**会话数**（`/chat/unread`）
+     *   · 通知     = 未读通知**条数**（`/notification/unread-count`，一条 COUNT）
+     * 曾因为「未读数要额外一次请求」而不给通知加角标，代价是：医生收到「新预约」
+     * 站内信时侧栏毫无反应，只能靠记忆去点开看。两个图标（Message / Bell）
+     * 本来就分得开，不存在「分不清哪个是对话」的问题。
+     */
+    path: '/admin/notifications',
+    label: '通知',
+    icon: BellOutlined,
+    adminOnly: false,
+    doctorOnly: false,
+    badge: inbox.noticeCount,
+    badgeTip: `${inbox.noticeCount} 条未读通知`,
   },
 ])
 

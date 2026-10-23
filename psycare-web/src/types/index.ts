@@ -435,6 +435,11 @@ export interface Notification {
   userId: number
   title: string
   content: string
+  /**
+   * 列表页单行摘要。预约类由后端拼好（「{医生名} · 10-25 周六 09:00-09:30」），
+   * 其余类型为 null —— 前端回落到截 content 前 40 字。
+   */
+  summary?: string | null
   type: string
   readFlag: number
   createdAt: string
@@ -835,4 +840,118 @@ export interface KnowledgeIndexReport {
   milvusOk: boolean
   message: string | null
   details?: KnowledgeIndexReport[]
+}
+
+// ===== 预约问诊 =====
+
+/**
+ * 一个可约时段。
+ *
+ * `startText / timeText / remaining / full` 全部由后端算好：
+ * 时间格式化散在前端各处，迟早有一处漏掉 `slice(0,5)`，
+ * 界面上就会出现一行带秒的时间。
+ */
+export interface ScheduleSlot {
+  id: number
+  startText: string
+  endText: string
+  timeText: string
+  capacity: number
+  bookedCount: number
+  remaining: number
+  full: boolean
+}
+
+/** 一天的号源。没有排班的日期也会返回，`slots` 为空数组（日期条要连续） */
+export interface ScheduleDay {
+  dateText: string
+  shortText: string
+  weekday: string
+  slots: ScheduleSlot[]
+}
+
+/**
+ * 预约的分组键。「已过期」是算出来的，不是库里的状态 ——
+ * 库里只有 BOOKED / CANCELLED，见后端 AppointmentVO 注释。
+ */
+export type AppointmentStatusKey = 'BOOKED' | 'EXPIRED' | 'CANCELLED'
+
+export interface AppointmentItem {
+  id: number
+  appointmentNo: string
+  residentId: number
+  doctorId: number
+  scheduleId: number
+  /** 库里的原始状态：BOOKED / CANCELLED */
+  status: string
+  statusKey: AppointmentStatusKey
+  statusText: string
+  patientName: string
+  patientPhone: string
+  chiefComplaint?: string | null
+  createdAt: string
+  doctorName?: string | null
+  doctorUsername?: string | null
+  doctorTitle?: string | null
+  department?: string | null
+  dateText: string
+  shortDate: string
+  weekday: string
+  timeText: string
+  /** "10-25 周六 09:00-09:30" */
+  whenText: string
+  expired: boolean
+  cancellable: boolean
+  doctorDisplayName: string
+}
+
+/** 提交预约。不含 residentId / doctorId —— 身份由 JWT 决定 */
+export interface AppointmentCreatePayload {
+  scheduleId: number
+  patientName: string
+  patientPhone: string
+  chiefComplaint?: string
+  consentVersion: string
+}
+
+/** 医生端保存某天时段：整组提交，只增改不删 */
+export interface ScheduleSavePayload {
+  workDate: string
+  slots: {
+    startTime: string
+    endTime: string
+    capacity: number
+  }[]
+}
+
+/**
+ * 按周批量铺号源：一套模板铺到多个周几上，连续若干周。
+ *
+ * `weekdays` 用 1~7（1=周一），与 `Date.getDay()` 的 0~6 差一位 ——
+ * 服务端只认 1~7，前端在拼 payload 时统一用 `WD_LABELS` 的下标 +1 换算，
+ * 不在两套编号之间来回转。
+ */
+export interface WeeklySchedulePayload {
+  /** 从哪天开始铺，省略取今天 */
+  fromDate?: string
+  weekCount: number
+  weekdays: number[]
+  /** 已有时段是否顺带改上限，默认 false（保护医生手工调过的值） */
+  overwriteCapacity: boolean
+  slots: {
+    startTime: string
+    endTime: string
+    capacity: number
+  }[]
+}
+
+/** 批量铺号源的结果：三个计数分开，医生才知道「为什么只有 8 天有号」 */
+export interface WeeklyScheduleResult {
+  dayCount: number
+  created: number
+  updated: number
+  skipped: number
+  dates: string[]
+  /** 服务端拼好的结论句，前端直接展示，不再重算一遍语义 */
+  summary: string
 }
