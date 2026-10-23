@@ -4,6 +4,7 @@ import type {
   AssessmentRecordVO,
   AssessmentResultResponse,
   AssessmentSubmitRequest,
+  LatestReport,
   Scale,
   ScaleDetail,
 } from '@/types'
@@ -26,6 +27,16 @@ export function submitAssessment(data: AssessmentSubmitRequest): Promise<Assessm
 /** 我的测评历史 */
 export function getHistory(): Promise<Assessment[]> {
   return get<Assessment[]>('/assessment/history')
+}
+
+/**
+ * 最近一次测评报告（AI 问诊页「报告」视图）。
+ *
+ * 从未做过测评时后端返回 `data: null`（不是 404），调用方需要自己区分
+ * 「没测过」与「请求失败」—— 前者渲染空状态卡，后者才是错误提示。
+ */
+export function getLatestReport(): Promise<LatestReport | null> {
+  return get<LatestReport | null>('/assessment/latest-report')
 }
 
 /**

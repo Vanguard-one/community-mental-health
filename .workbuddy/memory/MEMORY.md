@@ -33,7 +33,8 @@ Phase 3（RAG 离线管道，MySQL↔Milvus `chunk_id` 一致，子块 id 14–2
 | **动态追问建议 followups（10-22）** | 前后端已改完、编译/构建通过。`sql/v13_ai_usage_kind.sql` **已于 10-22 执行成功**（`kind varchar(16) NOT NULL DEFAULT 'CHAT'`，历史 130 行全为 CHAT，符合预期——改动前摘要根本没记）。契约变更：**`done` = 正文结束，不再是末尾**（#143）。第二轮按用户反馈修掉「思考时发虚 + 变回固定三条」：新增 `followupsPending` 三态（#146）、删掉 backdrop-filter 元素上的 transform 与 0.55 禁用透明度（#145）。第三轮确认「回复完仍先亮固定三条」是**用户标签页的 store 没热更新**（#147），代码侧只补了「收到建议即放行」。建议不落库，历史回看回落静态三条 |
 | **问诊页换马赛克背景（10-22 第 22 批）** | 复用登录页的 `MosaicLens`（WebGL2，双通道）当本页背景：`.chat-lens`（`absolute inset:0; z-index:0; pointer-events:none`）+ 34% 白纱 `.chat-lens-veil`；配色另走 `--lens-chat-bg/c1/c2`（青底 `#7ce2e3` + 浅青/浅紫），**不覆盖登录页那三个 `--lens-*`**；参数按 Originkit 预设 `speed 47 / size 153 / tile 6 / hover 82 / reach 187`，本页 `dpr-cap=1.5` 节流。`.chat-main` / `.chat-side` 显式 `z-index: 1`。**本页从此不再透 body 的 `--app-bg`**，改底色只改 `--lens-chat-*`（#149） |
 | **空态粒子球 OrbNoise（10-22）** | 纯前端，替换原「AI」实心圆 + 细环。`components/OrbNoise.vue`（Canvas 2D，`interactive` 默认 false 以保住移动端滚动）。色值唯一入口 `--orb-dot: #6f52f0`（**别换 --primary**：青底上同色相会糊）。**有消息后**改到输入框左侧（`.composer-orb`，`v-if="hasMessages && orbFits"`，尺寸 = 胶囊高、`--orb-size`/`--orb-gap` 由 `syncComposerOrb()` 实测写入；放不下就隐藏）。**组件为装饰层，样式改动不涉及后端** |
-| **顶部导航 Radio 组（10-22，占位；第 30 批改玻璃胶囊）** | `.chat-nav` 绝对定位 `top: 27px` = (110 − 56)/2。菜单是**透明玻璃胶囊**：`--chrome-bg-glass` + `backdrop-filter: blur(--glass-blur) saturate(180%)` + `--radius-pill`（不新造色值）。三个 `.nav-link` 64→120 悬停展开，**padding 5 与 height 44 绑死**（同心算式见红线 #29）。**点击只改 `activeNav`，不路由**；接线时把三处 `@click` 换成 `router.push()`。窄屏 56/104、height 40、`.chat-body` padding-top 72；减动效段**必须在样式表最后**（否则被窄屏 `--nav-w-open` 盖掉） |
+| **顶部导航（10-22 起；第 33 批收回 3 枚；第 34 批接「医生」）** | `.chat-nav` 绝对定位 `top: 27px` = (110 − 56)/2。菜单是**透明玻璃胶囊**：`--chrome-bg-glass` + `backdrop-filter: blur(--glass-blur) saturate(180%)` + `--radius-pill`（不新造色值）。**三枚：对话 / 医生 / 报告**（64→120 悬停展开，整体 204×56；`padding 5` 与 `height 44` 绑死，同心算式见红线 #29）。三枚**全部是本页切视图**（`goChatView` / `openDoctors` / `openReport`），不路由；`NavKey = 'chat' \| 'doctor' \| 'report'`。医生视图与报告视图共用 `.chat-report, .chat-doctors` 容器规则（110px/32px；≤560 → 72px/14px），边距差 4px 切换就会「跳」。`goScalePage()` 保留给报告页的「去测评」。窄屏 56/104、height 40、`.chat-body` padding-top 72；减动效段**必须在样式表最后** |
+| **共用展示组件（10-23）** | `RecommendedDoctors.vue`（匹配依据 + 骨架 + 医生卡网格 + 空态）同时服务 `/ai-recommend` 与问诊页「医生」视图；`AssessmentReport.vue` 同时服务 `/assessment/:id/result` 与「报告」视图。**同一份数据在两处出现时，抽组件而不是复制模板**；只差文案的（如「匹配依据」）抽函数（`utils/assessment.ts` 的 `formatMatchBasis`）。`立即咨询` 的跳转写死在组件内 —— 全站只有一个目的地 |
 | ⚠️ 仍未做 | `AiUsageRecorder` 把 `retrieved_count` 硬编码 0；`startedAt` 在检索之后 —— 前置耗时（向量化实测 274ms）无法观测 |
 
 **改版现状（10-13 批；视觉基准 `.workbuddy/demo/redesign-preview.html`）**：
@@ -73,7 +74,7 @@ Phase 3（RAG 离线管道，MySQL↔Milvus `chunk_id` 一致，子块 id 14–2
 
 ---
 
-## 三、最高频红线（30 条，细则见 `硬约定.md`）
+## 三、最高频红线（31 条，细则见 `硬约定.md`）
 
 1. 起项目三依赖：MySQL 3306 / Redis 6379 / 后端 18989。缺 Redis → 登录后被踢回登录页。
 2. 业务失败走 **HTTP 200 + `body.code`**；只有未登录走真 401（#63）。
@@ -124,6 +125,13 @@ Phase 3（RAG 离线管道，MySQL↔Milvus `chunk_id` 一致，子块 id 14–2
     `git stash -u` 后再 build，或 `git clone` 到临时目录构建一次。
     （`360ea75` 就是这样漏了 7 处引用：IconAi/OrbNoise/ProfileModal/ScaleManage/
     FollowupSuggester/LlmCompletion/FileStorage，见 2026-10-23 日志。）
+31. **写操作之后必须让对应的读缓存失效**。Pinia store 跨路由不销毁，凡是
+    「`if (list.length && !force) return`」式短路的列表，提交/删除后不会自己更新，
+    症状是「刚做完的事，页面显示的还是上一次的」——**不报错、刷新就好，最难查**。
+    正解：写操作里打 `xxxStale = true` 并静默重取（成功才归 false，失败留着下次重试），
+    不要直接清空数组（界面会先掉回空态再变满，闪一下）。
+    `AssessmentResultResponse` 缺 `scaleId/createdAt/residentId`，所以也别想
+    在本地凭响应拼一条记录 unshift 进去冒充真数据（见 2026-10-23 第 33 批）。
 
 ---
 

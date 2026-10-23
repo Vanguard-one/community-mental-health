@@ -1,6 +1,7 @@
 package com.cmh.psycare.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.cmh.psycare.common.enums.RiskLevel;
 import com.cmh.psycare.common.exception.BizException;
 import com.cmh.psycare.common.util.MaskUtil;
 import com.cmh.psycare.common.util.SecurityUtil;
@@ -9,6 +10,7 @@ import com.cmh.psycare.dto.AssessmentHistoryVO;
 import com.cmh.psycare.dto.AssessmentRecordVO;
 import com.cmh.psycare.dto.AssessmentResultResponse;
 import com.cmh.psycare.dto.AssessmentSubmitRequest;
+import com.cmh.psycare.dto.LatestReportVO;
 import com.cmh.psycare.engine.AlertEngine;
 import com.cmh.psycare.engine.ScoreResult;
 import com.cmh.psycare.engine.ScoringEngine;
@@ -147,6 +149,65 @@ public class AssessmentService {
                 new LambdaQueryWrapper<Assessment>()
                         .eq(Assessment::getResidentId, residentId)
                         .orderByDesc(Assessment::getCreatedAt));
+    }
+
+    /**
+     * 最近一次测评报告（AI 问诊页「报告」视图用）。
+     *
+     * <h3>为什么由服务端组装</h3>
+     * 报告要的字段横跨三处：assessment（分数/等级/危机）、scale（卷名/满分/维度）、
+     * buildAdvice（建议文案）。让前端串 {@code /assessment/history} +
+     * {@code /assessment/{id}} + {@code /scale/list} 三个请求去拼，有两个坑：
+     * <ul>
+     *   <li>{@code /scale/list} 只返回启用中的量表 —— 量表被管理员禁用后，
+     *       前端就查不到 maxScore，百分比条会**静默算成 0**，没有任何报错；</li>
+     *   <li>{@code history} 的排序不是接口契约，前端取 {@code [0]} 迟早出错。</li>
+     * </ul>
+     * 这里一条 SQL 取最新，量表用 {@code selectByIdIncludeDeleted} 取（含软删），
+     * 一次给全。
+     *
+     * @return 该居民从未做过测评时返回 {@code null}（前端渲染空状态）
+     */
+    public LatestReportVO latestReport(Long residentId) {
+        // ORDER BY created_at DESC, id DESC：同一秒内提交两次时按自增 id 决胜，
+        // 避免「刚做完却显示上一次」。LIMIT 1 让 selectOne 不会因多行抛异常。
+        Assessment latest = assessmentMapper.selectOne(
+                new LambdaQueryWrapper<Assessment>()
+                        .eq(Assessment::getResidentId, residentId)
+                        .orderByDesc(Assessment::getCreatedAt)
+                        .orderByDesc(Assessment::getId)
+                        .last("LIMIT 1"));
+        if (latest == null) {
+            return null;
+        }
+
+        // 量表可能已被软删：必须绕过逻辑删除，否则历史报告的卷名与满分就没了。
+        Scale scale = scaleMapper.selectByIdIncludeDeleted(latest.getScaleId());
+
+        // risk_level 在提交时必写，但老数据 / 手工订正不排除为空。
+        // 兜底 A（最低风险）而不是抛异常：报告只是回显，缺一个等级不该让整页打不开。
+        RiskLevel level = latest.getRiskLevel() == null ? RiskLevel.A : latest.getRiskLevel();
+        boolean crisis = Integer.valueOf(1).equals(latest.getCrisisFlag());
+        int total = latest.getTotalScore() == null ? 0 : latest.getTotalScore();
+        String rawLevel = latest.getRawLevel() == null ? "" : latest.getRawLevel();
+
+        return LatestReportVO.builder()
+                .assessmentId(latest.getId())
+                .scaleId(latest.getScaleId())
+                .scaleCode(scale == null ? null : scale.getCode())
+                .scaleName(scale == null ? null : scale.getName())
+                .dimension(scale == null ? null : scale.getDimension())
+                .maxScore(scale == null ? null : scale.getMaxScore())
+                .totalScore(total)
+                .rawLevel(rawLevel)
+                .riskLevel(level)
+                .riskLevelDesc(level.getDesc())
+                .crisis(crisis)
+                // 重算而不是读库：assessment 表没有 advice 列，buildAdvice 只依赖
+                // crisis + riskLevel，而这两个值都在库里 —— 结果与提交时一致。
+                .advice(buildAdvice(new ScoreResult(total, rawLevel, level, crisis)))
+                .completedAt(latest.getCreatedAt())
+                .build();
     }
 
     /** 居民测评历史 + 卷名（供工单右栏纵向对比用，带 join 的读模型） */

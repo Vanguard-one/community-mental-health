@@ -5,6 +5,7 @@ import com.cmh.psycare.common.util.SecurityUtil;
 import com.cmh.psycare.dto.AssessmentRecordVO;
 import com.cmh.psycare.dto.AssessmentResultResponse;
 import com.cmh.psycare.dto.AssessmentSubmitRequest;
+import com.cmh.psycare.dto.LatestReportVO;
 import com.cmh.psycare.entity.Assessment;
 import com.cmh.psycare.service.AssessmentService;
 import jakarta.validation.Valid;
@@ -33,6 +34,21 @@ public class AssessmentController {
     @GetMapping("/history")
     public Result<List<Assessment>> history() {
         return Result.ok(assessmentService.history(SecurityUtil.getUserId()));
+    }
+
+    /**
+     * 最近一次测评报告（AI 问诊页「报告」视图）。
+     *
+     * <p>从未做过测评时返回 {@code data: null} 而不是 404 ——「还没测过」是
+     * 一个正常状态，不是错误，前端要据此渲染空状态卡而不是错误提示。
+     *
+     * <p>路径必须排在 {@code /{id}} 之前声明。Spring 的路径匹配本身是
+     * 「字面量段优先于变量段」，所以顺序不影响结果；但把 /latest-report 写在
+     * /{id} 后面会让人误以为它会被解析成 id=latest-report，读代码时白花时间。
+     */
+    @GetMapping("/latest-report")
+    public Result<LatestReportVO> latestReport() {
+        return Result.ok(assessmentService.latestReport(SecurityUtil.getUserId()));
     }
 
     /**

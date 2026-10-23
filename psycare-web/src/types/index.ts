@@ -240,6 +240,41 @@ export interface AssessmentResultResponse {
   advice: string
 }
 
+/**
+ * 报告展示用的扁平数据 —— `components/AssessmentReport.vue` 的 props 形状。
+ *
+ * 刻意不复刻后端 DTO：两个调用方的形状本来就不同（结果页是
+ * `AssessmentResultResponse` + `ScaleMeta`，问诊页是 `LatestReport`），
+ * 由调用方各写十来行映射，比让组件去认识两种 DTO 更稳。
+ *
+ * 为什么放在 types 而不放在组件里：`<script setup>` 不允许 ES module export，
+ * 组件内写 `export interface` 会直接编译失败。
+ */
+export interface ReportData {
+  totalScore: number
+  rawLevel: string
+  riskLevel: RiskLevel
+  riskLevelDesc: string
+  crisis: boolean
+  advice: string
+  /** 量表名。null / undefined 时不显示这一行（量表被物理删除） */
+  scaleName?: string | null
+  scaleDimension?: string | null
+  /** 量表满分。缺失时隐藏「/ 满分」与百分比（否则会算成 0，误导人） */
+  maxScore?: number | null
+  /** 是否触发预警。只有 submit 的响应里有；历史报告必然是 undefined */
+  alertTriggered?: boolean
+  dimensions?: ReportDimension[]
+}
+
+/** 维度得分。后端暂未返回维度聚合，保留是为了「有值时自动渲染」 */
+export interface ReportDimension {
+  name: string
+  score: number
+  maxScore: number
+  exceeded?: boolean
+}
+
 export interface Assessment {
   id: number
   residentId: number
@@ -250,6 +285,32 @@ export interface Assessment {
   crisisFlag: number
   answerJson: string
   createdAt: string
+}
+
+/**
+ * 最近一次测评报告（`GET /assessment/latest-report`）。
+ *
+ * 与 {@link Assessment} 的区别：这个 VO 是**为展示准备的**，量表名/满分/建议
+ * 已经由服务端拼好；{@link Assessment} 是库里那行原始记录（没有 advice）。
+ *
+ * `scaleName` / `maxScore` 可为 null —— 量表被管理员删除后查不到，
+ * 但报告本身仍应能显示分数与等级，前端要做降级而不是报错。
+ */
+export interface LatestReport {
+  assessmentId: number
+  scaleId: number
+  scaleCode: string | null
+  scaleName: string | null
+  dimension: string | null
+  maxScore: number | null
+  totalScore: number
+  rawLevel: string
+  riskLevel: RiskLevel
+  riskLevelDesc: string
+  crisis: boolean
+  /** 建议文案，服务端按 crisis + riskLevel 重算（库里没有这一列） */
+  advice: string
+  completedAt: string
 }
 
 // ===== 预警工单 =====

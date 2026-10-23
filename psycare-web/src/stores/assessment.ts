@@ -51,6 +51,19 @@ export const useAssessmentStore = defineStore('assessment', () => {
   // ---- 历史 ----
   const history = ref<Assessment[]>([])
   const historyLoading = ref(false)
+  /**
+   * 历史列表是否已作废（本地缓存比服务端旧）。
+   *
+   * <p>只为「提交完新测评」一个场景存在：`history` 是 Pinia 里的长生命周期
+   * 缓存，`loadHistory()` 见到非空就直接返回，所以提交后的新记录**不会自己出现**。
+   * 症状是「刚做完测评进 AI 问诊，右栏还显示上一次的分数」—— 不报错、刷新一下
+   * 又好了，最难查。
+   *
+   * <p>为什么不让 `submit()` 直接把 `history` 清空：那一瞬间右栏会掉回「关联测评」
+   * 兜底卡（闪一下）。留旧数据 + 打一个「作废」标记，等新数据到了再整体替换，
+   * 界面是原地更新而不是先空再满。
+   */
+  const historyStale = ref(false)
 
   // ---- 最近一次结果 ----
   const lastResult = ref<AssessmentResultResponse | null>(
@@ -129,6 +142,20 @@ export const useAssessmentStore = defineStore('assessment', () => {
       lastScaleMeta.value = meta
       writeCache(RESULT_CACHE_KEY, result)
       writeCache(META_CACHE_KEY, meta)
+      /*
+       * 新记录已落库 → 历史列表作废并立刻重取一次。
+       *
+       * 这是右栏「最近一次测评」卡的数据源：它读 `history`，而 `loadHistory()`
+       * 见到缓存非空就短路。不在这里作废的话，刚提交完进问诊页仍会看到上一次的
+       * 分数（本次修的 bug）。
+       *
+       * 两个细节：
+       * ① 不 `await` —— 提交页的按钮状态不该被这次「顺手刷新」拖住；
+       * ② 失败要吞掉但**不清 `historyStale`** —— 网络抖一下不该让用户回到旧数据，
+       *    标记留着，下一次 `loadHistory()` 会再取（成功时才归 false）。
+       */
+      historyStale.value = true
+      void loadHistory(true).catch(() => undefined)
       return result
     } finally {
       submitting.value = false
@@ -136,10 +163,14 @@ export const useAssessmentStore = defineStore('assessment', () => {
   }
 
   async function loadHistory(force = false) {
-    if (history.value.length && !force) return history.value
+    // `historyStale` 与 `force` 是两条独立的路：前者是「数据本身过期了」，
+    // 后者是「调用方现在就想重新拉」。任一为真都要真去取，否则提交完
+    // 新测评再进问诊页，右栏会一直停在上一次的分数上（缓存短路）。
+    if (history.value.length && !force && !historyStale.value) return history.value
     historyLoading.value = true
     try {
       history.value = await getHistory()
+      historyStale.value = false
       return history.value
     } finally {
       historyLoading.value = false

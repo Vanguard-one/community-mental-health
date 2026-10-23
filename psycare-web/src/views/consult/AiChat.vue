@@ -82,10 +82,11 @@
       -->
 
       <!--
-        顶部导航（Radio 组，三个按钮）。
+        顶部导航（三枚：对话 / 医生 / 报告）。
 
-        ⚠️ **现在没有任何功能**：点击只切换本地高亮，不路由、不发请求。
-           接功能时只需把三处 `@click` 换成 `router.push(...)`，其余不用动。
+        ⚠️ 「医生」目前**没有任何功能** —— 只保留按钮与悬停动效，
+           点击既不切换视图也不跳路由（见下方 `@click` 那处的说明）。
+           「对话」「报告」是本页切视图，行为见 `openReport` / `goChatView`。
 
         位置：`position: absolute` 浮在 `.chat-main` 顶部，不占 flex 流。
         原因和第二十轮把输入区改成浮层是同一个 —— 这一条如果参与排版，
@@ -105,7 +106,7 @@
             :class="{ 'is-active': activeNav === 'chat' }"
             :aria-pressed="activeNav === 'chat'"
             aria-label="对话"
-            @click="activeNav = 'chat'"
+            @click="goChatView"
           >
             <span class="nav-icon" aria-hidden="true">
               <!--
@@ -122,37 +123,24 @@
             <span class="nav-title">对话</span>
           </button>
 
-          <button
-            type="button"
-            class="nav-link"
-            :class="{ 'is-active': activeNav === 'scale' }"
-            :aria-pressed="activeNav === 'scale'"
-            aria-label="测评"
-            @click="activeNav = 'scale'"
-          >
-            <span class="nav-icon" aria-hidden="true">
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              >
-                <path d="M8 6h13M8 12h13M8 18h13" />
-                <path d="M3 6h.01M3 12h.01M3 18h.01" />
-              </svg>
-            </span>
-            <span class="nav-title">测评</span>
-          </button>
+          <!--
+            医生（AI 推荐）。
 
+            与「报告」同样是**本页切换**，不跳 `/ai-recommend`：
+            推荐结果要压在同一个马赛克背景上，跳走就丢了这层视觉语言，
+            而且用户切回对话时得重新走一遍路由、滚动、浮层高度那一套。
+
+            卡片列表本身不在这里画 —— 复用 `RecommendedDoctors`
+            （`/ai-recommend` 独立页用的是同一个组件），保证两处的卡片、
+            指标口径、匹配依据一字不差。
+          -->
           <button
             type="button"
             class="nav-link"
             :class="{ 'is-active': activeNav === 'doctor' }"
             :aria-pressed="activeNav === 'doctor'"
-            aria-label="医生"
-            @click="activeNav = 'doctor'"
+            aria-label="AI 推荐医生"
+            @click="openDoctors"
           >
             <span class="nav-icon" aria-hidden="true">
               <svg
@@ -169,6 +157,45 @@
             </span>
             <span class="nav-title">医生</span>
           </button>
+
+          <!--
+            报告（末位）。
+            与「医生」一样是**本页切换**：内容压在同一块马赛克背景上，
+            切走只换主列，不涉及路由。
+
+            标签用「报告」而不是「问诊」：这一排已经有「对话」了，
+            再来一个「问诊」，用户在 AI 问诊页看到它会以为是「开始问诊」，
+            而它实际做的是「看最近一次的测评报告」。名字要能让后果可预期。
+
+            图标取 file-text（带折角的文档）而不是列表/柱状图：
+            列表会被读成「清单/测评」，柱状图会被读成「数据统计」，
+            而这份东西的名字就是「报告」。
+          -->
+          <button
+            type="button"
+            class="nav-link"
+            :class="{ 'is-active': activeNav === 'report' }"
+            :aria-pressed="activeNav === 'report'"
+            aria-label="最近一次测评报告"
+            @click="openReport"
+          >
+            <span class="nav-icon" aria-hidden="true">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+                <line x1="9" y1="13" x2="15" y2="13" />
+                <line x1="9" y1="17" x2="13" y2="17" />
+              </svg>
+            </span>
+            <span class="nav-title">报告</span>
+          </button>
         </div>
       </nav>
 
@@ -177,7 +204,12 @@
         它只在用户**主动**滚动时反映真实意图 —— 程序滚动触发的事件里
         nearBottom() 为 true，回写 stickToBottom 也是 true，不会自相矛盾。
       -->
-      <div ref="bodyRef" class="chat-body" @scroll.passive="onBodyScroll">
+      <div
+        v-if="activeNav === 'chat'"
+        ref="bodyRef"
+        class="chat-body"
+        @scroll.passive="onBodyScroll"
+      >
         <div v-if="!chat.hasMessages && !chat.opening" class="chat-empty">
           <!--
             空态原有一行标题「你好，我是 PsyCare AI 咨询助手」，已删除 ——
@@ -316,6 +348,136 @@
       </div>
 
       <!--
+        报告视图（顶部导航末位那枚按钮）。
+
+        <h3>为什么它和对话区是两个容器，而不是同一块换内容</h3>
+        对话区的滚动位置、贴底跟随、输入浮层高度全都绑在 `.chat-body` 上；
+        报告是「读一次、看完就走」的静态页面，不需要这些。共用一块容器的话，
+        从长报告切回对话会停在半路（`.chat-body` 的 scrollTop 是报告留下的），
+        而「切回来还在刚才那段对话的底部」才是对的。
+
+        <h3>为什么输入浮层在这里被 v-if 卸载</h3>
+        它是 `position: absolute; bottom: 0`，不卸载就会盖住报告的最后一屏；
+        同时 `--chat-foot` 是 ResizeObserver 实测写进 `.chat-body` 的
+        `padding-bottom` —— 若改用 v-show 藏起来，观测值仍在，
+        报告底部会空出一大块，且没有任何报错。
+      -->
+      <div v-else-if="activeNav === 'report'" class="chat-report">
+        <div class="report-inner">
+          <div v-if="reportState === 'loading'" class="report-state" aria-live="polite">
+            <span class="rs-spin" aria-hidden="true"></span>
+            <p class="rs-desc">正在读取最近一次测评…</p>
+          </div>
+
+          <!--
+            错误态与空态必须分开：一个是「请求没成功」，一个是「确实还没测过」。
+            合并成一句「暂无数据」会让用户以为自己的报告丢了。
+          -->
+          <div v-else-if="reportState === 'error'" class="report-state">
+            <h2 class="rs-title">报告没能加载出来</h2>
+            <p class="rs-desc">可能是网络波动，或后端服务未启动。稍后再试一次。</p>
+            <div class="rs-ops">
+              <button type="button" class="btn btn-primary" @click="loadReport(true)">重试</button>
+            </div>
+          </div>
+
+          <!-- 从未测过：给一个明确的下一步，而不是只说「暂无」 -->
+          <div v-else-if="reportState === 'empty'" class="report-state">
+            <div class="empty-orb is-small" aria-hidden="true">
+              <span class="orb-halo"></span>
+              <OrbNoise
+                class="orb-field"
+                :density="120"
+                :dot-size="105"
+                :speed="32"
+                :spin-turns="1"
+                :dpr-cap="2"
+              />
+            </div>
+            <h2 class="rs-title">还没有测评报告</h2>
+            <p class="rs-desc">完成一次心理测评后，这里会显示最近一次的得分、风险等级与建议。</p>
+            <div class="rs-ops">
+              <button type="button" class="btn btn-primary" @click="goScalePage">去测评</button>
+            </div>
+          </div>
+
+          <template v-else-if="reportState === 'ready' && reportView">
+            <header class="report-head">
+              <h2 class="report-heading">最近一次测评报告</h2>
+              <span v-if="report?.completedAt" class="report-time mono">
+                {{ monthDay(report.completedAt) }} 完成
+              </span>
+            </header>
+
+            <!--
+              报告主体与测评结果页共用同一个组件 —— 「总分/等级/评估构成/建议」
+              在这两处必须长得一模一样，否则同一份报告在两个入口看起来像两份。
+            -->
+            <AssessmentReport :report="reportView" />
+
+            <!-- 出口：与结果页底部那三个按钮同语义，但只留最必要的一个 -->
+            <div class="report-ops">
+              <button type="button" class="btn btn-ghost" @click="goScalePage">重新测评</button>
+              <button type="button" class="btn btn-ghost" @click="goChatView">回到对话</button>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!--
+        医生视图（顶部第二枚按钮）。
+
+        结构与「报告」逐层对齐：`.chat-doctors` 自己滚动 → `.doctors-inner` 限宽居中，
+        输入浮层同样被 `v-if` 卸载（原因见上面报告视图那段注释，一模一样）。
+
+        <h3>卡片为什么不在这个文件里画</h3>
+        独立结果页 `/ai-recommend` 已经有一份很完整的医生卡（指标块 / 专长 chip /
+        推荐理由 / 立即咨询）。用户要的是「点这里就能看到那份推荐」，不是「另做一份
+        长得像的」—— 所以把它抽成 `components/RecommendedDoctors.vue`，两边共用。
+        这样改一次卡片文案，两个入口同时生效。
+
+        <h3>标题为什么不用页头的 <PageHeader></h3>
+        这里已经是全屏对话壳的一列，外面套一层 L1 白卡 + 大标题会把「浮在背景上的
+        一层」叠成三层（背景 → 白卡 → 卡片），而这页的视觉语言是「薄薄一层内容
+        压在背景上」。所以只留一行 h2，与报告视图的 `.report-heading` 同规格。
+      -->
+      <div v-else-if="activeNav === 'doctor'" class="chat-doctors">
+        <div class="doctors-inner">
+          <header class="report-head">
+            <h2 class="report-heading">为你推荐的医生</h2>
+            <span v-if="doctors.length" class="report-time">{{ doctors.length }} 位匹配</span>
+          </header>
+
+          <!--
+            错误态只覆盖「一次都没取到」的情况：`loadDoctors()` 会吞掉异常并让
+            `doctors` 保持为空，若不单独提示，用户看到的是「暂时没有匹配到合适的医生」——
+            这句话在心理场景里会被理解成「我不适合看医生」，而真相只是网络没通。
+            空态（真的没匹配到）由组件内部渲染。
+          -->
+          <div v-if="doctorFailed && !doctors.length" class="report-state">
+            <h2 class="rs-title">医生推荐没能加载出来</h2>
+            <p class="rs-desc">可能是网络波动，或后端服务未启动。稍后再试一次。</p>
+            <div class="rs-ops">
+              <button type="button" class="btn btn-primary" @click="loadDoctors()">重试</button>
+            </div>
+          </div>
+
+          <template v-else>
+            <RecommendedDoctors
+              :doctors="doctors"
+              :loading="doctorLoading"
+              :basis="doctorBasis"
+            />
+
+            <!-- 出口：与报告视图一致，只留「回到对话」这一条 -->
+            <div class="report-ops">
+              <button type="button" class="btn btn-ghost" @click="goChatView">回到对话</button>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!--
         输入区是**浮层**（2026-10-22 第十八轮）：`position: absolute` 贴在 `.chat-main`
         底部，消息区在它下面继续滚动并被渐隐隐去（见 `.chat-body` 的 mask）。
         之前它是 flex 的一行，消息滚到边界就被硬切一刀 —— 那正是用户说的「断层」。
@@ -323,7 +485,7 @@
         `ref` 只为量它的高度：消息区的 `padding-bottom` 与渐隐起点都要跟着它走
         （多行输入、建议行出现、窄屏重排都会让高度变），见 syncFootHeight()。
       -->
-      <footer ref="footRef" class="chat-input">
+      <footer v-if="activeNav === 'chat'" ref="footRef" class="chat-input">
         <!-- 已结束的会话（从历史里打开的）只能看不能发：后端对 CLOSED 会话返回 400，
              不提前拦住的话，用户会看到一条「看起来像故障」的报错 -->
         <div v-if="chat.sessionStatus === 'CLOSED'" class="closed-bar">
@@ -735,16 +897,20 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
+import AssessmentReport from '@/components/AssessmentReport.vue'
 import IconAi from '@/components/IconAi.vue'
 import MosaicLens from '@/components/MosaicLens.vue'
 import OrbNoise from '@/components/OrbNoise.vue'
+import RecommendedDoctors from '@/components/RecommendedDoctors.vue'
 import RiskLevelTag from '@/components/RiskLevelTag.vue'
 import RoleAvatar from '@/components/RoleAvatar.vue'
+import { getLatestReport } from '@/api/assessment'
 import { getRecommendDoctors } from '@/api/recommend'
 import { useAssessmentStore } from '@/stores/assessment'
 import { useChatStore } from '@/stores/chat'
+import { formatMatchBasis } from '@/utils/assessment'
 import { RISK_LEVEL_DESC } from '@/types'
-import type { Assessment, RecommendResult } from '@/types'
+import type { Assessment, LatestReport, RecommendResult, ReportData } from '@/types'
 
 const PRESET_PROMPTS = [
   '最近总是睡不好，该怎么办？',
@@ -971,6 +1137,15 @@ const footRef = ref<HTMLElement>()
 let footObserver: ResizeObserver | undefined
 const doctors = ref<RecommendResult[]>([])
 const doctorLoading = ref(false)
+/**
+ * 上一次取推荐是否**失败**（不是「没匹配到」）。
+ *
+ * <p>两者都会让 `doctors` 为空，但对用户是两件完全不同的事：一个是「网络没通」，
+ * 一个是「确实没有合适的医生」。合并成同一个空态，在心理场景里会被读成后者 ——
+ * 「我不适合看医生」。所以失败时由页面单独渲染错误态 + 重试，
+ * 组件内部的空态只留给「真的没匹配到」。
+ */
+const doctorFailed = ref(false)
 
 /* ---- 推荐流程（收到 recommend 事件后播放的分析动画） ---- */
 const analyzing = ref(false)
@@ -987,15 +1162,24 @@ const analyzeStep = ref(0)
 const sideOpen = ref(false)
 
 /**
- * 顶部导航当前高亮项（占位）。
+ * 顶部导航当前项 —— 三个值各对应主列的一块内容，**全部是本页切换**，不涉及路由：
+ * <ul>
+ *   <li>{@code 'chat'} → `.chat-body`（对话区，带输入浮层）；</li>
+ *   <li>{@code 'doctor'} → `.chat-doctors`（AI 推荐医生，复用 `RecommendedDoctors`）；</li>
+ *   <li>{@code 'report'} → `.chat-report`（最近一次测评报告，复用 `AssessmentReport`）。</li>
+ * </ul>
  *
- * <p>`'chat' | 'scale' | 'doctor'` 三选一，**只影响样式，不做任何事** ——
- * 不路由、不发请求。等接线时把它换成 `activeNav` + `watch` 跳转，或者干脆
- * 只用路由的 `route.name` 推导（那样刷新后高亮才对得上）。
+ * <h3>为什么这三块都自己画，而不是嵌现成的页面</h3>
+ * `ScaleList` / `DoctorConsult` 都是 `.page-container`（`max-width: 1344px` + 窗口滚动）。
+ * 塞进这个 `height: 100vh; overflow: hidden` 的容器里，超出视口的部分会被**裁掉且没有
+ * 滚动条** —— 症状是「下面明明还有内容但滚不动」，不报错，最难查。
+ * 所以真正的「整页」仍然靠跳转进入（`/scales` 从报告页的「去测评」走）；
+ * 能嵌的只有「内容块」，也就是这两个复用组件。
  *
  * <p>默认 `'chat'`：这一页本来就是对话页，进来看见「对话」亮着是符合预期的。
  */
-const activeNav = ref<'chat' | 'scale' | 'doctor'>('chat')
+type NavKey = 'chat' | 'doctor' | 'report'
+const activeNav = ref<NavKey>('chat')
 
 const topDoctors = computed(() => doctors.value.slice(0, 2))
 
@@ -1065,6 +1249,15 @@ const sideIsLinked = computed(
 )
 
 /**
+ * 医生视图顶部那条「匹配依据」。
+ *
+ * <p>与右栏「最近一次测评」卡共用 `sideAssessment` / `sideScale` —— 同一屏里
+ * 「卡片说 C 级、匹配依据说 B 级」是最容易被用户抓住的自相矛盾。
+ * 文案本身由 {@link formatMatchBasis} 生成，与 `/ai-recommend` 独立页同源。
+ */
+const doctorBasis = computed(() => formatMatchBasis(sideAssessment.value, sideScale.value))
+
+/**
  * `2026-10-22T10:30:00` → `10.22`。
  *
  * 与 `views/history/AssessmentHistory.vue` 的口径保持一致（那边叫 `monthDay`）：
@@ -1078,6 +1271,104 @@ function monthDay(s: string): string {
   const day = Number(s.slice(8, 10))
   if (!mo || !day) return ''
   return `${mo}.${day}`
+}
+
+/* ---------- 报告视图（顶部导航末位那枚按钮） ---------- */
+
+/**
+ * 报告区的五态。
+ *
+ * <p>`empty` 与 `error` **必须分开** —— 前者是「这个人确实还没测过」，
+ * 后者是「请求没成功」。合并成一句「暂无数据」会让用户以为自己的报告丢了，
+ * 而这两种情况的下一步动作完全不同（去测评 / 重试）。
+ */
+type ReportState = 'idle' | 'loading' | 'ready' | 'empty' | 'error'
+
+const report = ref<LatestReport | null>(null)
+const reportState = ref<ReportState>('idle')
+
+/**
+ * 把 `LatestReport` 拍平成组件要的形状。
+ *
+ * <p>这一层映射存在的意义：后端 VO 是「接口约定」，组件 props 是「展示约定」，
+ * 两者一旦耦合，后端加个字段就得动组件。现在加字段只需要改这里。
+ */
+const reportView = computed<ReportData | null>(() => {
+  const r = report.value
+  if (!r) return null
+  return {
+    totalScore: r.totalScore,
+    rawLevel: r.rawLevel,
+    riskLevel: r.riskLevel,
+    riskLevelDesc: r.riskLevelDesc,
+    crisis: r.crisis,
+    advice: r.advice,
+    scaleName: r.scaleName,
+    scaleDimension: r.dimension,
+    maxScore: r.maxScore,
+    // alertTriggered 不传：历史报告拿不到这个信息（assessment 表没有这一列），
+    // 传 false 又会被组件当成「确定没触发」——留空，让那一段根本不渲染。
+  }
+})
+
+/** 点顶部「报告」：切视图 + 首次才拉数据 */
+function openReport() {
+  activeNav.value = 'report'
+  // 懒加载：切来切去不该反复打接口。`error` 态不自动重试（可能后端没起，
+  // 自动重试只会让用户看到转圈 → 报错 → 转圈的循环），交给卡上的「重试」。
+  if (reportState.value === 'idle') loadReport()
+}
+
+/**
+ * 点顶部「医生」：切视图。
+ *
+ * <p>数据在 `onMounted` 就已经取过（右栏也要用），所以这里**不重复请求** ——
+ * 只在「一次都没成功」时补一次。注意判据是 `!doctors.length && !doctorLoading`：
+ * 加载中再点一次不该并发第二个请求；而 `doctorFailed` 的场景正好也满足
+ * `!doctors.length`，所以点第二次天然就是一次重试。
+ */
+function openDoctors() {
+  activeNav.value = 'doctor'
+  if (!doctors.value.length && !doctorLoading.value) loadDoctors()
+}
+
+async function loadReport(force = false) {
+  if (reportState.value === 'loading') return
+  if (!force && reportState.value === 'ready') return
+  reportState.value = 'loading'
+  try {
+    const data = await getLatestReport()
+    report.value = data
+    reportState.value = data ? 'ready' : 'empty'
+  } catch {
+    // 请求层已经弹过统一的 toast（见 api/request.ts），这里只负责页面内的错误态。
+    reportState.value = 'error'
+  }
+}
+
+/** 回到对话视图 */
+function goChatView() {
+  // 已经在对话里再点一次「对话」不该有任何副作用 —— 尤其是不能把
+  // 正在往上翻旧记录的用户拽回底部（下面的 doScrollToBottom 会那么做）。
+  const switching = activeNav.value !== 'chat'
+  activeNav.value = 'chat'
+  if (!switching) return
+  /*
+   * 对话区是 `v-if` 重建的 —— DOM 回来之后必须补两件事：
+   * ① `--chat-foot`：新 `.chat-body` 上没有那个内联变量，会先按 CSS 兜底值
+   *    渲染一帧，表现是「最后一条消息被输入框压住」闪一下；
+   * ② 滚动位置：新元素 scrollTop=0，等于把用户从底部拽回最上面。
+   *
+   * 放进 nextTick 是因为此时 DOM 还没生成，量不到 footer 高度。
+   */
+  nextTick(() => {
+    syncFootHeight()
+    if (stickToBottom) doScrollToBottom()
+  })
+}
+
+function goScalePage() {
+  router.push('/scales')
 }
 
 /** 「依据」只在首条已完成的 AI 回复上出现一次，重复展示没有信息增量 */
@@ -1265,6 +1556,25 @@ function syncComposerOrb() {
   foot.style.setProperty('--orb-gap', `${ORB_GAP}px`)
   orbFits.value = true
 }
+
+/**
+ * footer 现在是 `v-if`（报告视图下会被整个卸载），切回对话时拿到的是**新元素**。
+ *
+ * <p>onMounted 里 observe 的那个已经脱离文档了 —— 不在这里重挂的话，
+ * `--chat-foot` 会一直停在 CSS 兜底值，表现是「从报告切回来，最后一条消息
+ * 被输入框盖住一截」，而且窗口缩放也不会自愈（旧 observer 观察的是死元素）。
+ */
+watch(
+  footRef,
+  (el) => {
+    footObserver?.disconnect()
+    if (!el || typeof ResizeObserver === 'undefined') return
+    footObserver = new ResizeObserver(() => syncFootHeight())
+    footObserver.observe(el)
+    syncFootHeight()
+  },
+  { flush: 'post' },
+)
 
 onBeforeUnmount(() => {
   footObserver?.disconnect()
@@ -1492,10 +1802,12 @@ async function playAnalyzeAndJump(sid: number) {
 async function loadDoctors() {
   if (chat.sessionId === null) return
   doctorLoading.value = true
+  doctorFailed.value = false
   try {
     doctors.value = await getRecommendDoctors(chat.sessionId, 3)
   } catch {
-    // 推荐失败不影响对话主链路，右栏自行降级为空态
+    // 推荐失败不影响对话主链路：右栏降级为空态，而「医生」视图会显示错误态 + 重试
+    doctorFailed.value = true
   } finally {
     doctorLoading.value = false
   }
@@ -2652,51 +2964,180 @@ onMounted(async () => {
   margin-inline: auto;
 }
 
-/* 细圆角滚动条。浏览器默认的 15px 直角滚动条，在一屏圆润的界面里是最扎眼的一处棱角 */
-.chat-body::-webkit-scrollbar {
-  width: 6px;
-}
-
-.chat-body::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.chat-body::-webkit-scrollbar-thumb {
-  border-radius: 3px;
-  background: var(--card-border);
-  transition: background var(--dur) var(--ease);
-}
-
-.chat-body::-webkit-scrollbar-thumb:hover {
-  background: var(--text-3);
-}
-
 /*
- * 细圆角滚动条。
+ * 细圆角滚动条。浏览器默认的 15px 直角滚动条，在一屏圆润的界面里是最扎眼的一处棱角。
  *
  * ⚠️ 拇指色从 --card-border 换成 --text-3：背景改成浅蓝渐变之后，
  * --card-border（近白）压在 #c6d9f5 上几乎看不出 —— 滚动条等于不存在，
  * 用户以为「这一屏已经到底了」。--text-3 是页面底上唯一达标的深色档之一，
  * 且与消息正文的灰阶同族，不会跳出来抢注意力。
  * 宽度 6px 略收窄，是因为透明背景上不需要给滚动条留「轨道」的视觉余量。
+ *
+ * 选择器用 `:is()` 把「报告」「医生」两个视图一起带上：这几处是同一个视觉容器
+ * （都压在马赛克背景上），滚动条长得不一样会立刻被看出来。
+ * 以后再加同类滚动区，往这个列表里加即可。
  */
-.chat-body::-webkit-scrollbar {
+:is(.chat-body, .chat-report, .chat-doctors)::-webkit-scrollbar {
   width: 6px;
 }
 
-.chat-body::-webkit-scrollbar-track {
+:is(.chat-body, .chat-report, .chat-doctors)::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.chat-body::-webkit-scrollbar-thumb {
+:is(.chat-body, .chat-report, .chat-doctors)::-webkit-scrollbar-thumb {
   border-radius: 3px;
   background: var(--text-3);
   transition: background var(--dur) var(--ease);
 }
 
-.chat-body::-webkit-scrollbar-thumb:hover {
+:is(.chat-body, .chat-report, .chat-doctors)::-webkit-scrollbar-thumb:hover {
   background: var(--text-2);
 }
+
+/* ---------- 报告视图 / 医生视图（同一套容器语言） ---------- */
+
+/*
+ * 与 `.chat-body` 并列的另外两个滚动容器（`v-if` 三选一，不会同时出现）。
+ *
+ * 顶部 110px 与消息区同值：导航胶囊浮在那条带子里，内容不能钻到它下面。
+ * 底部不带 `--chat-foot` —— 这两个视图里都没有输入浮层（它是 `v-if` 卸载的），
+ * 抄过来只会凭空多出一块空白。
+ *
+ * ⚠️ 两处共用一条规则，是因为它们**必须**完全一致：切换时唯一应该变的是内容，
+ * 边距差 4px 都会让整块内容在切换瞬间「跳一下」。
+ */
+.chat-report,
+.chat-doctors {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 110px 32px var(--space-block);
+}
+
+/* 与消息列同宽：`--chat-col` 是「一屏能舒适读完的行宽」，报告也按这个来 */
+.report-inner,
+.doctors-inner {
+  max-width: var(--chat-col);
+  margin: 0 auto;
+}
+
+.report-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: var(--space-card);
+}
+
+/*
+ * 报告标题走 --font-serif（h2 级别的页面标题），
+ * 而卡片内的小标题（AssessmentReport 里的 .panel-title）走 --font-sans + 600 ——
+ * 这是全站「标题衬线、卡内标题无衬线」的既定分工，两处不要对调。
+ */
+.report-heading {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+
+.report-time {
+  flex: none;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+/*
+ * 出口按钮组（报告视图两枚：重新测评 / 回到对话；医生视图一枚：回到对话）。
+ *
+ * `justify-content: center` 是这一组唯一的位置约束：容器是块级、宽度由
+ * `.report-inner` / `.doctors-inner` 的 `max-width: var(--chat-col)` 决定，
+ * 所以在任何屏宽下这行按钮都落在**内容列的中线**上 —— 不需要为窄屏另写一份，
+ * 也不靠 margin 去凑（左右自动外边距会在换行时失效）。
+ *
+ * `flex-wrap: wrap` 必须留着：极窄屏（≤320）两枚按钮会折成两行，
+ * 折行后每行仍然居中；若改成 nowrap，两枚按钮会被 `flex-shrink` 挤扁。
+ */
+.report-ops {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: var(--space-card);
+}
+
+/* 按钮自然宽度，不参与收缩：居中一旦和收缩同时发生，先被压扁的是文字间距 */
+.report-ops .btn {
+  flex: none;
+}
+
+/*
+ * 医生视图的「回到对话」再往下让一档。
+ *
+ * 报告视图不需要这条：`AssessmentReport` 最后一块（「给您的建议」面板）
+ * 自带 `margin-bottom: var(--space-card)`，按钮已经离开卡片了。
+ * 而医生视图的间距只存在于卡片**之间**（`.doctor-grid` 的 `gap`），
+ * 最后一行卡片下沿没有任何 margin —— 不补这一条，按钮会贴着卡片底边，
+ * 看起来像卡片的一部分。
+ *
+ * ⚠️ 必须带 `.chat-doctors` 前缀（特异性 0,2,0 > 0,1,0）：只作用于医生视图。
+ *    如果直接写在 `.report-ops` 上，报告视图会多出一截 20px 的空白。
+ */
+.chat-doctors .report-ops {
+  margin-top: var(--space-card);
+}
+
+/*
+ * 加载 / 空 / 错误三态共用的居中块。
+ *
+ * 三态的骨架相同（一句标题 + 一句说明 + 一组按钮），只有中间那枚装饰不同 ——
+ * 所以共用一套类名，`.rs-title` / `.rs-desc` / `.rs-ops` 由三态各自决定出不出。
+ */
+.report-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 12vh 24px 32px;
+}
+
+.rs-title {
+  margin: 0 0 10px;
+  font-size: 19px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+
+.rs-desc {
+  max-width: 40ch;
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text-2);
+}
+
+.rs-ops {
+  margin-top: var(--space-card);
+}
+
+/* 转圈：与发送按钮那个 `.send-spin` 同一套写法（主色环 + 顶部实色） */
+.rs-spin {
+  width: 26px;
+  height: 26px;
+  margin-bottom: 14px;
+  border: 2px solid color-mix(in srgb, var(--primary) 28%, transparent);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: rs-rotate 0.8s linear infinite;
+}
+
+@keyframes rs-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 
 /*
  * 空态：目标版式里它是**垂直居中**的一列（光核 → 一句引导 → 三条胶囊），
@@ -2725,6 +3166,20 @@ onMounted(async () => {
   width: 148px;
   height: 148px;
   margin: 0 auto 24px;
+}
+
+/*
+ * 小号变体（报告空态用）。
+ *
+ * 148px 是「整页空态」的规格 —— 那屏没有别的内容，球就是主角。
+ * 报告空态下面还压着一句说明和一个「去测评」按钮，再用 148 会把视线全吸走，
+ * 所以收到 96。特异性（0,2,0）高于基础规则与窄屏规则（都是 0,1,0），
+ * 因此不需要关心它写在文件哪个位置。
+ */
+.empty-orb.is-small {
+  width: 96px;
+  height: 96px;
+  margin-bottom: 18px;
 }
 
 /* 柔光：原来铺 `--primary-soft`（浅蓝），现在跟着粒子的色走 ——
@@ -4187,6 +4642,12 @@ onMounted(async () => {
     padding: 72px 14px calc(var(--chat-foot) + 40px);
   }
 
+  /* 报告区 / 医生区跟消息区同一套边距，只是底部不需要浮层高度（那两个视图没有输入框） */
+  .chat-report,
+  .chat-doctors {
+    padding: 72px 14px 32px;
+  }
+
   /* 顶部导航同步收小：375 宽下 178px 的三枚胶囊放得下，
      但桌面那档的厚度在窄屏会显得笨，也会让上沿那条留白显得更厚。 */
   .chat-nav {
@@ -4296,6 +4757,13 @@ onMounted(async () => {
   .nav-link:focus-visible .nav-title {
     opacity: 0;
     transform: translateX(100%);
+  }
+
+  /* 报告加载态的转圈**不取消，只放慢**：它是「正在读数据」的唯一信号，
+     停掉之后那三秒里屏幕上什么都不动，用户会以为卡死。
+     这与「减少动态效果」的诉求不冲突 —— 它要减的是装饰性位移，不是状态反馈。 */
+  .rs-spin {
+    animation-duration: 1.8s;
   }
 }
 </style>
