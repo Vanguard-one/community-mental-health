@@ -73,7 +73,7 @@ Phase 3（RAG 离线管道，MySQL↔Milvus `chunk_id` 一致，子块 id 14–2
 
 ---
 
-## 三、最高频红线（29 条，细则见 `硬约定.md`）
+## 三、最高频红线（30 条，细则见 `硬约定.md`）
 
 1. 起项目三依赖：MySQL 3306 / Redis 6379 / 后端 18989。缺 Redis → 登录后被踢回登录页。
 2. 业务失败走 **HTTP 200 + `body.code`**；只有未登录走真 401（#63）。
@@ -117,6 +117,13 @@ Phase 3（RAG 离线管道，MySQL↔Milvus `chunk_id` 一致，子块 id 14–2
     且 `父高/2 − 描边 − 内边距 == 子高/2`（导航胶囊：`56/2−1−5 = 22 = 44/2`）。
     因此 **padding 与 height 是绑死的一对**，单独改任一个 → 端点露出月牙形的缝
     （用户会描述成「边缘不整洁」）。窄屏 40 高时同式：`50/2−1−4 = 20`。
+30. **新增文件必须与「引用它的旧文件」进同一个提交**。只提旧文件 → HEAD 是**坏的**：
+    远端能 checkout、本地能跑（新增文件还在工作区里），但别人 clone 下来直接编译不过，
+    而且本地 `git status` 只会显示「新增文件未跟踪」，看不出 HEAD 已经坏了。
+    症状隐蔽、只在别人机器上出现。提交前自检：
+    `git stash -u` 后再 build，或 `git clone` 到临时目录构建一次。
+    （`360ea75` 就是这样漏了 7 处引用：IconAi/OrbNoise/ProfileModal/ScaleManage/
+    FollowupSuggester/LlmCompletion/FileStorage，见 2026-10-23 日志。）
 
 ---
 
