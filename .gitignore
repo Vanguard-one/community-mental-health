@@ -49,3 +49,14 @@ venv/
 # 需要本地私密配置时放这里，不要改 application.yml
 application-local.yml
 application-local.properties
+
+# ---------- 运行产物 / 个人材料 ----------
+# output/：开题报告、答辩 PPT、模块图、pipeline 中间态 —— 学术材料，与产品代码无关，
+#   且仓库是 public，别混进来。
+output/
+# data/uploads/：切 OSS 之后数据库里全是 https://my-sky-x.oss-cn-beijing.aliyuncs.com/...
+#   这些只是本地回退副本（2026-10-22 迁移时留的两周保险），clone 下来不需要，
+#   缺图也不影响启动。avatar/ 里是真人头像，public 仓库尤其不能进。
+#   注：banner/2026/10/09 与 10/13 的 3 个文件在加这条之前已被跟踪，
+#   忽略规则不会让它们退出索引，需要显式 `git rm --cached` 才会清掉（暂未做）。
+data/uploads/
