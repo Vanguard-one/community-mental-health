@@ -1,0 +1,866 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>首页改版 · UI 设计稿（方案 A）</title>
+<style>
+/* ============================================================
+   取值逐项抄自 psycare-web/src/styles/tokens.css
+   字体栈与线上一致（本机 Noto Serif SC / Noto Sans SC 可命中）
+   ============================================================ */
+:root{
+  --app-bg-fallback:#dbe7f7;
+  --bg-art-veil:rgba(255,255,255,.25);
+
+  --primary:#2563eb;
+  --primary-dark:#1d4fd8;
+  --primary-soft:#e7eefe;
+  --on-primary:#fff;
+  --accent-purple:#7c3aed;
+
+  --card-bg:#fff;
+  --card-border:#d5dfeb;
+  --panel-bg:#eef3fa;
+  --ctrl-border:#c3d0e0;
+  --card-bg-glass:rgba(255,255,255,.82);
+  --glass-blur:18px;
+  --chrome-bg-glass:rgba(255,255,255,.62);
+
+  --text-1:#0b1220;
+  --text-2:#47536a;
+  --text-3:#64748b;
+  --ink:#22314b;
+
+  --risk-a:#12b0a0; --risk-a-soft:#e0f9f5; --risk-a-ink:#0b7a6e;
+  --risk-b:#f09a0a; --risk-b-soft:#fef6e4; --risk-b-ink:#9a6200;
+
+  --font-serif:'Source Han Serif CN','Noto Serif SC','Songti SC','SimSun',serif;
+  --font-sans:'Source Han Sans CN','Noto Sans SC','Microsoft YaHei','PingFang SC',system-ui,sans-serif;
+  --font-mono:'JetBrains Mono','SFMono-Regular',Consolas,monospace;
+
+  --rail-w:64px;
+  --content-max:1344px;
+  --space-block:32px;
+  --space-card:20px;
+
+  --radius-ctrl:10px;
+  --radius-sm:16px;
+  --radius-lg:28px;
+  --radius-pill:999px;
+
+  --shadow-card:0 4px 14px rgba(11,18,32,.05);
+  --shadow-hover:0 10px 24px rgba(11,18,32,.09);
+  --ease:cubic-bezier(.4,0,.2,1);
+  --dur:.2s;
+
+  /* 本稿新增 */
+  --chip-bg:rgba(255,255,255,.90);
+  --chip-border:rgba(255,255,255,.95);
+  --card-bg-inner:rgba(255,255,255,.86);
+  --hero-aurora-a:rgba(37,99,235,.10);
+  --hero-aurora-b:rgba(124,58,237,.09);
+  --care-glow:rgba(18,176,160,.13);
+  --care-plant:rgba(18,176,160,.20);
+}
+
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  min-height:100vh;
+  font-family:var(--font-sans);
+  color:var(--text-1);
+  background:var(--app-bg-fallback);
+  -webkit-font-smoothing:antialiased;
+}
+
+/* ---------- 整页插画底（与 DefaultLayout 的 .bg-art 同构） ---------- */
+.bg-art{
+  position:fixed; inset:0; z-index:0;
+  background-color:var(--app-bg-fallback);
+  background-image:url('../../psycare-web/public/app-bg-resident.jpg');
+  background-position:center; background-size:cover; background-repeat:no-repeat;
+  pointer-events:none;
+}
+.bg-art::after{content:'';position:absolute;inset:0;background:var(--bg-art-veil)}
+
+/* ---------- 左侧 64px 窄栏（仅示意，非本稿重点） ---------- */
+.rail{
+  position:fixed; left:0; top:0; bottom:0; width:var(--rail-w); z-index:40;
+  display:flex; flex-direction:column; align-items:center; gap:6px;
+  padding:14px 0;
+  background:var(--chrome-bg-glass);
+  backdrop-filter:blur(var(--glass-blur));
+  border-right:1px solid rgba(255,255,255,.6);
+}
+.rail-logo{
+  width:36px;height:36px;border-radius:11px;margin-bottom:14px;
+  background:linear-gradient(135deg,var(--primary),var(--primary-dark));
+  display:flex;align-items:center;justify-content:center;
+  color:#fff;font-size:13px;font-weight:700;letter-spacing:.02em;
+  box-shadow:0 2px 10px rgba(37,99,235,.3);
+}
+.rail-item{
+  position:relative;width:42px;height:40px;border-radius:var(--radius-ctrl);
+  display:flex;align-items:center;justify-content:center;color:var(--ink);opacity:.62;
+}
+.rail-item.on{background:var(--primary-soft);color:var(--primary-dark);opacity:1}
+.rail-item svg{width:19px;height:19px}
+.rail-dot{position:absolute;top:6px;right:7px;width:7px;height:7px;border-radius:50%;
+  background:#e43b3b;border:1.5px solid #fff}
+
+/* ---------- 内容区 ---------- */
+/* 与线上 .page-container 同构：内容宽上限 1344（含左右 28 内边距 → 实际内容 1288） */
+.page{
+  position:relative; z-index:1;
+  margin-left:var(--rail-w);
+  padding:28px;
+}
+.page > section{
+  max-width:var(--content-max);
+  margin-left:auto;
+  margin-right:auto;
+}
+
+/* ============================================================
+   一、HERO 主角卡
+   ============================================================ */
+.hero{
+  position:relative; overflow:hidden;
+  display:flex; align-items:center; gap:40px;
+  min-height:288px;
+  padding:36px;
+  border-radius:var(--radius-lg);
+  background:var(--card-bg-glass);
+  backdrop-filter:blur(var(--glass-blur));
+  border:1px solid rgba(255,255,255,.72);
+  box-shadow:var(--shadow-card);
+  margin-bottom:var(--space-block);
+}
+/* 装饰光晕：只在右半，永不落到左栏文字区 */
+.hero::before{
+  content:'';position:absolute;inset:0;pointer-events:none;
+  background:
+    radial-gradient(420px 260px at 88% -10%, var(--hero-aurora-a), transparent 70%),
+    radial-gradient(360px 240px at 96% 110%, var(--hero-aurora-b), transparent 72%);
+}
+
+.hero-l{position:relative;flex:1;min-width:0}
+
+.greet{
+  margin:0;
+  font-family:var(--font-serif);
+  font-size:36px;font-weight:700;line-height:1.25;
+  letter-spacing:.01em;
+  color:var(--text-1);
+}
+.sub{
+  margin:8px 0 0;
+  font-size:15px;line-height:1.6;
+  color:var(--text-2);
+}
+
+/* 日期胶囊 */
+.chip{
+  display:inline-flex;align-items:center;gap:12px;
+  height:38px;padding:0 16px;margin-top:20px;
+  border-radius:var(--radius-pill);
+  background:var(--chip-bg);
+  border:1px solid var(--chip-border);
+  box-shadow:0 2px 10px rgba(11,18,32,.05);
+}
+.chip svg{width:16px;height:16px;flex:none;color:var(--primary)}
+.chip-date{font-size:13px;color:var(--text-2)}
+.chip-sep{width:1px;height:16px;background:rgba(213,223,235,.95);flex:none}
+.chip-streak{font-size:13px;font-weight:600;color:var(--primary-dark)}
+.chip-streak .leaf{color:var(--risk-a);margin-left:2px}
+
+.hero-cta{
+  display:inline-flex;align-items:center;gap:7px;
+  height:40px;padding:0 22px;margin-top:20px;
+  border-radius:var(--radius-ctrl);border:0;
+  background:linear-gradient(135deg,var(--primary),var(--primary-dark));
+  color:var(--on-primary);
+  font-family:inherit;font-size:14px;font-weight:600;
+  cursor:pointer;
+  box-shadow:0 2px 10px rgba(37,99,235,.3);
+  transition:transform var(--dur) var(--ease),box-shadow var(--dur) var(--ease);
+}
+.hero-cta:hover{transform:translateY(-1px);box-shadow:0 6px 16px rgba(37,99,235,.36)}
+.hero-cta svg{width:15px;height:15px}
+
+/* 右栏内嵌卡 */
+.latest{
+  position:relative;flex:none;width:360px;
+  padding:18px 20px;
+  border-radius:var(--radius-sm);
+  background:var(--card-bg-inner);
+  border:1px solid rgba(255,255,255,.9);
+  box-shadow:0 2px 12px rgba(11,18,32,.05);
+}
+.lt-eyebrow{font-size:12.5px;color:var(--text-3)}
+.lt-score-row{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  margin-top:6px;
+}
+.lt-score{
+  display:flex;align-items:baseline;gap:3px;
+  font-family:var(--font-mono);font-variant-numeric:tabular-nums;
+  font-size:40px;font-weight:700;line-height:1;color:var(--primary);
+}
+.lt-score small{font-size:14px;font-weight:500;color:var(--text-3);font-family:var(--font-sans)}
+.lt-name{margin-top:8px;font-size:14.5px;font-weight:600;color:var(--text-1);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lt-meta{margin-top:4px;font-size:12.5px;color:var(--text-3);font-family:var(--font-mono)}
+.lt-divider{margin:12px 0 10px;height:1px;background:color-mix(in srgb,var(--card-border) 70%,transparent)}
+.lt-foot{display:flex;align-items:flex-end;justify-content:space-between;gap:14px}
+
+/* 迷你趋势条：6 根 div，不引图表库 */
+.spark{display:flex;align-items:flex-end;gap:4px;height:30px;flex:1;min-width:0}
+.spark i{flex:1;border-radius:3px;background:var(--primary-soft);display:block}
+.spark i.on{background:var(--primary)}
+.spark-cap{font-size:11.5px;color:var(--text-3);margin-top:6px;display:block}
+
+.lt-link{
+  flex:none;font-size:12.5px;font-weight:600;color:var(--primary-dark);
+  text-decoration:none;white-space:nowrap;
+}
+.lt-link:hover{text-decoration:underline}
+
+/* 风险标签（RiskLevelTag，default） */
+.tag{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:4px 10px;border-radius:var(--radius-pill);
+  font-size:12px;font-weight:600;line-height:1;white-space:nowrap;
+}
+.tag.is-a{color:var(--risk-a-ink);background:var(--risk-a-soft)}
+.tag.is-b{color:var(--risk-b-ink);background:var(--risk-b-soft)}
+
+/* ============================================================
+   二、三张入口卡
+   ============================================================ */
+.entries{
+  display:grid;grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:var(--space-card);
+  margin-bottom:var(--space-block);
+}
+.entry{
+  position:relative;overflow:hidden;
+  display:flex;align-items:center;gap:16px;
+  min-height:96px;padding:20px 22px;
+  width:100%;text-align:left;
+  background:var(--card-bg);
+  border:1px solid var(--card-border);
+  border-radius:var(--radius-sm);
+  box-shadow:var(--shadow-card);
+  cursor:pointer;font:inherit;
+  transition:transform var(--dur) var(--ease),box-shadow var(--dur) var(--ease);
+}
+/* 同色淡晕：让三张白卡「各有颜色」，而不是三块一样的白 */
+.entry::after{
+  content:'';position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(140px 140px at 100% 118%, var(--entry-glow), transparent 68%);
+}
+.entry:hover{transform:translateY(-3px);box-shadow:var(--shadow-hover)}
+
+.entry-icon{
+  position:relative;flex:none;
+  width:48px;height:48px;border-radius:14px;
+  display:flex;align-items:center;justify-content:center;
+  transition:transform var(--dur) var(--ease);
+}
+.entry:hover .entry-icon{transform:scale(1.06)}
+.entry-icon svg{width:22px;height:22px}
+
+.entry-body{position:relative;flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.entry-title{font-size:15.5px;font-weight:600;color:var(--text-1)}
+.entry-desc{font-size:12.5px;color:var(--text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.entry-arrow{
+  position:relative;flex:none;font-size:16px;color:var(--text-3);
+  transition:color var(--dur) var(--ease),transform var(--dur) var(--ease);
+}
+.entry:hover .entry-arrow{color:var(--primary);transform:translateX(4px)}
+
+/* 三个 tone（成对色，写死在组件里 —— 与既有 tone-* 同一处理） */
+.tone-blue  {background:linear-gradient(140deg,#eff6ff,#dbeaff);color:#1f7aff;--entry-glow:rgba(31,122,255,.09)}
+.tone-teal  {background:linear-gradient(140deg,#e6fbf7,#d2f4ee);color:#0e9c8d;--entry-glow:rgba(14,156,141,.09)}
+.tone-purple{background:linear-gradient(140deg,#f6f4fe,#eae5fe);color:var(--accent-purple);--entry-glow:rgba(124,58,237,.09)}
+
+/* ============================================================
+   三、底部三栏：最近记录（收窄） / 服务与保障 / 运营 Banner
+   ============================================================ */
+/*
+ * 比例 1 : 0.95 : 1.45。
+ *
+ * 不是「三等分」的原因：banner 是 2.5:1 的运营物料，容器越窄、越接近
+ * 竖向卡片，`cover` 裁掉的左右就越多。所以它拿最大的那一份（≈532px），
+ * 配上底部 273 的高度，实际比例 1.95:1 —— 两侧各裁约 11%
+ *（原两栏时是 576×260 ≈ 2.21:1，各裁 5.7%）。
+ * 若三栏均分（各 416px），比例会掉到 1.5:1，各裁约 20%，带字的运营图会被切字。
+ *
+ * 最近记录拿 1fr（≈367px）：比原来两栏时的 691px 短了 47%，
+ * 行内只保留「量表名 / 时间·状态 / 风险标签 / 箭头」四要素。
+ */
+.bottom{
+  display:grid;grid-template-columns:minmax(0,1fr) minmax(0,0.95fr) minmax(0,1.45fr);
+  gap:var(--space-card);align-items:start;
+}
+/* 中栏两张卡纵向叠：服务引导卡 + 四项保障条 */
+.bottom-col{display:flex;flex-direction:column;gap:12px;min-width:0}
+.card{
+  background:var(--card-bg);
+  border:1px solid var(--card-border);
+  border-radius:var(--radius-sm);
+  box-shadow:var(--shadow-card);
+  overflow:hidden;
+}
+.card-head{
+  display:flex;align-items:center;gap:8px;
+  padding:17px 16px 12px;
+}
+.card-head svg{width:17px;height:17px;color:var(--text-3);flex:none}
+.card-head h3{
+  margin:0;font-family:var(--font-sans);font-size:15.5px;font-weight:600;color:var(--text-1);
+}
+.more{margin-left:auto;font-size:12.5px;color:var(--primary);text-decoration:none;flex:none;white-space:nowrap}
+.more:hover{text-decoration:underline}
+
+/* 与中栏等高：列表自己撑满，空白留在卡片底部而不是让整张卡悬在半空 */
+.rec-card{align-self:stretch;display:flex;flex-direction:column}
+.rec-list{flex:1}
+
+/* ---------- 最近记录（收窄后的行形态，对齐参考图） ---------- */
+/*
+ * 从「4px 竖条 + 右对齐分数」改成「整行淡色底 + 圆角图标砖 + 风险标签」。
+ *
+ * 收窄到 384px 之后，原来那一列「15px 分数 + 等级标签」竖排会占掉 60px，
+ * 量表名只剩 150px —— 「PSQI · 睡眠质量量表」正好被截掉一个字。
+ * 参考图给的是同一类信息的另一种排法：**状态收进右侧一枚 chip，时间与状态并成一行**，
+ * 分数不再单独占位（hero 里的最近一次测评卡已经承担了「分数」这件事，重复展示反而稀释它）。
+ */
+.rec-list{list-style:none;margin:0;padding:0 16px 16px;display:flex;flex-direction:column;gap:8px}
+.rec-list li{
+  display:flex;align-items:center;gap:10px;
+  padding:9px 12px 9px 9px;
+  border-radius:14px;
+  background:var(--rec-bg);
+  cursor:pointer;
+  transition:transform var(--dur) var(--ease),box-shadow var(--dur) var(--ease);
+}
+.rec-list li:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(11,18,32,.06)}
+.lv-a{--rec-bg:var(--risk-a-soft);--rec-fg:var(--risk-a-ink)}
+.lv-b{--rec-bg:var(--risk-b-soft);--rec-fg:var(--risk-b-ink)}
+
+/* 图标砖：白底浮在淡色行上，让「量表」这一层比「风险」那一层更靠前 */
+.rec-tile{
+  flex:none;width:36px;height:36px;border-radius:12px;
+  display:grid;place-items:center;
+  background:var(--card-bg);color:var(--rec-fg);
+  box-shadow:0 1px 3px rgba(11,18,32,.06);
+}
+.rec-tile svg{width:17px;height:17px}
+
+.grow{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.rec-name{
+  font-size:13.5px;font-weight:500;color:var(--text-1);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+/* 时间与状态并成一行：中间用「·」而非竖线，竖线在小字号下像表格分隔 */
+.rec-meta{
+  font-size:11.5px;color:var(--text-2);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.rec-meta .mono{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+/*
+ * 箭头用 --text-2 而不是 --text-3。
+ * 实测 --text-3 落在两档行底上只有 4.31 / 4.42，都不达 4.5；
+ * 它虽然是装饰性指示，但既然同一行里 text-2 有 7.0，没有理由留一个不达标的。
+ */
+.rec-go{
+  flex:none;font-size:15px;line-height:1;color:var(--text-2);
+  transition:transform var(--dur) var(--ease),color var(--dur) var(--ease);
+}
+.rec-list li:hover .rec-go{transform:translateX(2px);color:var(--text-1)}
+
+/*
+ * 状态小胶囊：**必须白底**。
+ * 行底色已经是 --risk-*-soft，标签若再用同族 soft 就等于「没有标签」——
+ * 界面上只会看到一块更亮的空白。所以标签走白底 92% + 同族墨色字，
+ * 让它从行底「浮起来」一层，也顺带把 --risk-*-ink 的对比度保住
+ *（实测合成底 #fdfffe 上 ink 5.20、#fffefd 上 5.06，均达 AA）。
+ */
+.rec-badge{
+  flex:none;display:inline-flex;align-items:center;
+  padding:3px 8px;border-radius:var(--radius-pill);
+  background:var(--chip-bg);
+  font-size:11px;font-weight:600;line-height:1.25;white-space:nowrap;
+  color:var(--rec-fg);
+  box-shadow:0 1px 2px rgba(11,18,32,.05);
+}
+
+/* ============================================================
+   三·二、中栏：服务引导卡 + 四项保障条
+   ============================================================ */
+.care{
+  position:relative;overflow:hidden;
+  padding:18px 18px 16px;
+  background:var(--card-bg);
+}
+/* 右上角一团极淡的主色光 + 植物剪影：参考图右侧是绿植实拍，这里用矢量替代，
+   不引第二张图。光晕永远压在文案右侧 60% 之后，不与标题行重叠。 */
+.care::before{
+  content:'';position:absolute;right:-60px;top:-70px;
+  width:200px;height:200px;border-radius:50%;
+  background:radial-gradient(circle,var(--care-glow),transparent 70%);
+  pointer-events:none;
+}
+.care-plant{
+  position:absolute;right:-10px;top:6px;width:92px;height:92px;
+  color:var(--care-plant);pointer-events:none;
+}
+.care-title{
+  position:relative;margin:0;
+  font-family:var(--font-serif);font-size:19px;font-weight:600;
+  line-height:1.45;color:var(--text-1);letter-spacing:.01em;
+}
+.care-desc{
+  position:relative;margin:8px 0 0;
+  font-size:12.5px;line-height:1.6;color:var(--text-2);
+  max-width:26em;
+}
+.care-cta{
+  position:relative;display:inline-flex;align-items:center;gap:7px;
+  margin-top:13px;height:32px;padding:0 15px;border-radius:var(--radius-pill);
+  background:var(--primary);color:var(--on-primary);
+  font-size:12.5px;font-weight:600;text-decoration:none;
+  box-shadow:0 4px 12px rgba(37,99,235,.22);
+  transition:background var(--dur) var(--ease),transform var(--dur) var(--ease);
+}
+.care-cta:hover{background:var(--primary-dark);transform:translateY(-1px)}
+.care-cta span{font-size:13px;line-height:1}
+
+/*
+ * 四项保障：1×4 横排。
+ *
+ * 没有做成 2×2 —— 四块各 80px 宽时，本可以把每块放大到 168px 更宽松，
+ * 但那样这一条的高度会从 ~97 翻到 ~194，底部整块被拉到 390，
+ * banner 的比例就掉到 1.28:1（物料 2.5:1，会裁掉近一半）。
+ * 所以宁可让说明文字短一点（≤7 字，不折行），把高度压回一条。
+ */
+.feat{
+  display:grid;grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:8px;padding:13px 10px;
+  background:var(--card-bg);border:1px solid var(--card-border);
+  border-radius:var(--radius-sm);box-shadow:var(--shadow-card);
+}
+.ft{display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center;min-width:0}
+.ft-icon{
+  width:32px;height:32px;border-radius:50%;
+  display:grid;place-items:center;
+  background:var(--primary-soft);color:var(--primary);
+}
+.ft-icon svg{width:16px;height:16px}
+.ft-title{font-size:12px;font-weight:600;color:var(--text-1);white-space:nowrap}
+.ft-desc{font-size:10.5px;line-height:1.4;color:var(--text-3);white-space:nowrap}
+
+/* Banner 占位（生产为 1200×480 运营图） */
+.banner{
+  align-self:stretch;
+  border-radius:var(--radius-sm);
+  border:1px dashed var(--ctrl-border);
+  background:
+    radial-gradient(240px 180px at 18% 22%, rgba(37,99,235,.10), transparent 70%),
+    radial-gradient(260px 200px at 88% 88%, rgba(18,176,160,.12), transparent 72%),
+    linear-gradient(160deg,#eef4fd,#e4eefb);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;
+  min-height:260px;position:relative;
+}
+.banner-label{font-size:12.5px;color:var(--text-2);font-weight:600}
+.banner-sub{font-size:11.5px;color:var(--text-2);font-family:var(--font-mono)}
+/* 三栏之后 banner 的实际容器比例变了，把这句标出来 —— 见下方 token 段说明。
+   用 --text-2 而不是 --text-3：在本占位的斜向浅蓝底上，text-3 只有约 4.4。 */
+.banner-hint{font-size:10.5px;color:var(--text-2);opacity:.75;font-family:var(--font-mono)}
+.banner-dots{position:absolute;bottom:16px;left:0;right:0;display:flex;justify-content:center;gap:6px}
+.banner-dots i{width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,.75)}
+.banner-dots i.on{width:18px;border-radius:3px;background:var(--primary)}
+
+/* ============================================================
+   四、标注模式
+   ============================================================ */
+.note{
+  position:absolute;z-index:5;top:8px;right:10px;
+  padding:2px 7px;border-radius:6px;
+  font-family:var(--font-mono);font-size:10.5px;font-weight:500;
+  color:#fff;background:rgba(37,99,235,.9);
+  opacity:0;transition:opacity var(--dur) var(--ease);pointer-events:none;
+}
+body.annot .note{opacity:1}
+body.annot .hero{outline:1px dashed rgba(37,99,235,.55);outline-offset:3px}
+body.annot .entry{outline:1px dashed rgba(37,99,235,.45);outline-offset:3px}
+body.annot .bottom>*{outline:1px dashed rgba(37,99,235,.45);outline-offset:3px}
+/* 中栏是纵向容器，标注画在它内部两张卡上才有意义 */
+body.annot .bottom-col{outline:none}
+body.annot .bottom-col>*{outline:1px dashed rgba(37,99,235,.45);outline-offset:3px}
+body.annot .feat .ft{outline:1px dashed rgba(124,58,237,.35);outline-offset:2px}
+body.annot .latest{outline:1px dashed rgba(124,58,237,.5);outline-offset:3px}
+
+.dock{
+  position:fixed;right:22px;bottom:22px;z-index:60;
+  display:flex;gap:8px;align-items:center;
+  padding:8px;border-radius:var(--radius-pill);
+  background:rgba(255,255,255,.88);
+  backdrop-filter:blur(14px);
+  border:1px solid rgba(255,255,255,.9);
+  box-shadow:0 10px 24px rgba(11,18,32,.12);
+}
+.dock button{
+  height:32px;padding:0 14px;border-radius:var(--radius-pill);
+  border:1px solid var(--ctrl-border);background:#fff;
+  font-family:inherit;font-size:12.5px;font-weight:600;color:var(--text-2);
+  cursor:pointer;transition:all var(--dur) var(--ease);
+}
+.dock button.on{background:var(--primary);border-color:var(--primary);color:#fff}
+.dock-label{font-size:11.5px;color:var(--text-3);padding:0 4px 0 8px}
+
+/* ============================================================
+   五、响应式
+   ============================================================ */
+@media (max-width:1180px){
+  .hero{padding:30px;gap:30px}
+  .greet{font-size:32px}
+  .latest{width:330px}
+  .entries{grid-template-columns:repeat(2,minmax(0,1fr))}
+  /* 三栏压到 1120 时中栏只剩 ~328：1×4 每块 71px，六字说明正好贴边 → 折成 2×2 */
+  .feat{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 8px}
+}
+@media (max-width:1100px){
+  .bottom{grid-template-columns:minmax(0,1fr)}
+  /*
+   * 单列之后中栏有 1224 宽：如果照旧纵向叠，服务卡的文案只占左侧 340，
+   * 右边 880 全是白底 + 一团不知道往哪放的光晕。
+   * 所以这里改成「文案 | 保障」左右并排，让两张卡各自回到合理宽度。
+   */
+  .bottom-col{
+    display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);
+    gap:var(--space-card);align-items:stretch;
+  }
+  .feat{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .banner{min-height:200px}
+}
+@media (max-width:900px){
+  .hero{flex-direction:column;align-items:stretch;gap:24px}
+  .latest{width:100%}
+  .lt-foot{align-items:center}
+}
+@media (max-width:720px){
+  .page{padding:18px;padding-right:18px}
+  .hero{padding:24px;border-radius:22px}
+  .greet{font-size:26px}
+  .sub{font-size:14px}
+  .entries{grid-template-columns:minmax(0,1fr)}
+  .entry{min-height:84px}
+  /* 手机上一行放不下「文案 | 保障」两栏，回到纵向 */
+  .bottom-col{display:grid;grid-template-columns:minmax(0,1fr)}
+}
+@media (max-width:480px){
+  .chip-streak,.chip-sep{display:none}
+}
+</style>
+</head>
+<body>
+
+<div class="bg-art" aria-hidden="true"></div>
+
+<!-- ============ 左侧窄栏（示意） ============ -->
+<aside class="rail" aria-hidden="true">
+  <div class="rail-logo">心</div>
+  <div class="rail-item on">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3.5 10.5 12 3.5l8.5 7"/><path d="M5.5 9.5V20h13V9.5"/><path d="M9.5 20v-5.5h5V20"/>
+    </svg>
+  </div>
+  <div class="rail-item">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="4.5" y="3.5" width="15" height="17" rx="2.5"/><path d="M8.5 8h7M8.5 12h7M8.5 16h4"/>
+    </svg>
+  </div>
+  <div class="rail-item">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M20 12.5a8 8 0 0 1-11.6 7L4 20.5l1.2-3.9A8 8 0 1 1 20 12.5Z"/>
+    </svg>
+  </div>
+  <div class="rail-item">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="9" cy="8.5" r="3"/><path d="M3.5 20c0-3 2.5-5 5.5-5s5.5 2 5.5 5"/>
+      <circle cx="17" cy="9.5" r="2.2"/><path d="M15.4 15.2c2.7-.5 5.1 1.3 5.1 4.3"/>
+    </svg>
+    <i class="rail-dot"></i>
+  </div>
+  <div class="rail-item">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M18 8.5a6 6 0 1 0-12 0c0 6-2 7.5-2 7.5h16s-2-1.5-2-7.5"/>
+      <path d="M10.5 19.5a2 2 0 0 0 3 0"/>
+    </svg>
+    <i class="rail-dot"></i>
+  </div>
+</aside>
+
+<!-- ============ 内容 ============ -->
+<main class="page">
+
+  <!-- ---------- HERO ---------- -->
+  <section class="hero">
+    <span class="note">HERO · 288px · 玻璃 82% + blur18</span>
+
+    <div class="hero-l">
+      <h1 class="greet">下午好，张小雨</h1>
+      <p class="sub">愿你在这里，找到心灵的平静与力量。</p>
+
+      <div class="chip">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+          <rect x="3.5" y="5.5" width="17" height="15" rx="3"/>
+          <path d="M8 3.5v4M16 3.5v4M3.5 10.5h17"/>
+        </svg>
+        <span class="chip-date">2026 年 10 月 23 日 周五</span>
+        <span class="chip-sep" aria-hidden="true"></span>
+        <span class="chip-streak">连续记录 5 天<span class="leaf">✦</span></span>
+      </div>
+
+      <div>
+        <button class="hero-cta" type="button">
+          开始测评
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5 12h13M13 6.5 18.5 12 13 17.5"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- 右栏：最近一次测评 -->
+    <div class="latest">
+      <span class="note" style="background:rgba(124,58,237,.9)">内嵌卡 · 360 · 白 86%</span>
+      <div class="lt-eyebrow">最近一次测评</div>
+
+      <div class="lt-score-row">
+        <div class="lt-score">12<small>分</small></div>
+        <span class="tag is-a">低风险</span>
+      </div>
+
+      <div class="lt-name">PHQ-9 · 抑郁筛查量表</div>
+      <div class="lt-meta">满分 27 · 10-23 16:08</div>
+
+      <div class="lt-divider"></div>
+
+      <div class="lt-foot">
+        <div style="flex:1;min-width:0">
+          <div class="spark">
+            <i style="height:52%"></i>
+            <i style="height:70%"></i>
+            <i style="height:44%"></i>
+            <i style="height:80%"></i>
+            <i style="height:62%"></i>
+            <i class="on" style="height:46%"></i>
+          </div>
+          <span class="spark-cap">近 6 次</span>
+        </div>
+        <a class="lt-link" href="#">查看报告 →</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ---------- 三张入口 ---------- -->
+  <section class="entries">
+    <button class="entry" type="button">
+      <span class="note">96px</span>
+      <span class="entry-icon tone-blue">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="4.5" y="3.5" width="15" height="17" rx="2.5"/>
+          <path d="M8.5 8.5h7M8.5 12.5h7M8.5 16.5h4"/>
+        </svg>
+      </span>
+      <span class="entry-body">
+        <span class="entry-title">心理测评</span>
+        <span class="entry-desc">抑郁 / 焦虑 / 躯体 / 睡眠专业量表</span>
+      </span>
+      <span class="entry-arrow">→</span>
+    </button>
+
+    <button class="entry" type="button">
+      <span class="entry-icon tone-teal">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="4" y="7.5" width="16" height="12.5" rx="3.5"/>
+          <path d="M12 3.5v4M9 12h.01M15 12h.01M9.5 16h5"/>
+        </svg>
+      </span>
+      <span class="entry-body">
+        <span class="entry-title">AI 咨询</span>
+        <span class="entry-desc">随时倾诉 · 7×24 小时在线</span>
+      </span>
+      <span class="entry-arrow">→</span>
+    </button>
+
+    <button class="entry" type="button">
+      <span class="entry-icon tone-purple">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="9" cy="8.5" r="3"/><path d="M3.5 20c0-3 2.5-5 5.5-5s5.5 2 5.5 5"/>
+          <circle cx="17" cy="9.5" r="2.2"/><path d="M15.4 15.2c2.7-.5 5.1 1.3 5.1 4.3"/>
+        </svg>
+      </span>
+      <span class="entry-body">
+        <span class="entry-title">医生咨询</span>
+        <span class="entry-desc">按科室找到合适的医生</span>
+      </span>
+      <span class="entry-arrow">→</span>
+    </button>
+  </section>
+
+  <!-- ---------- 底部三栏 ---------- -->
+  <section class="bottom">
+    <!-- ① 最近记录：由 691px 收窄到 384px -->
+    <div class="card rec-card">
+      <span class="note">1fr · 367</span>
+      <div class="card-head">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3.5" y="5.5" width="17" height="15" rx="3"/>
+          <path d="M8 3.5v4M16 3.5v4M3.5 10.5h17"/>
+        </svg>
+        <h3>最近记录</h3>
+        <a class="more" href="#">全部记录 →</a>
+      </div>
+
+      <ul class="rec-list">
+        <li class="lv-a">
+          <span class="rec-tile">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20.4 8.6a4.4 4.4 0 0 0-7.5-3.1l-.9.9-.9-.9A4.4 4.4 0 0 0 3.6 8.6c0 4.1 4.2 6.8 8.4 10.2 4.2-3.4 8.4-6.1 8.4-10.2Z"/>
+            </svg>
+          </span>
+          <span class="grow">
+            <span class="rec-name">PHQ-9 · 抑郁筛查量表</span>
+            <span class="rec-meta"><span class="mono">10-23 16:08</span> · 已完成</span>
+          </span>
+          <span class="rec-badge">低风险</span>
+          <span class="rec-go">›</span>
+        </li>
+
+        <li class="lv-b">
+          <span class="rec-tile">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20 14.6A8.6 8.6 0 0 1 9.4 4a8.6 8.6 0 1 0 10.6 10.6Z"/>
+            </svg>
+          </span>
+          <span class="grow">
+            <span class="rec-name">PSQI · 睡眠质量量表</span>
+            <span class="rec-meta"><span class="mono">10-23 11:07</span> · 已完成</span>
+          </span>
+          <span class="rec-badge">中风险</span>
+          <span class="rec-go">›</span>
+        </li>
+
+        <li class="lv-a">
+          <span class="rec-tile">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M7.2 18.5a4.2 4.2 0 0 1-.4-8.4 5.6 5.6 0 0 1 10.7 1.5 3.6 3.6 0 0 1-.7 6.9Z"/>
+            </svg>
+          </span>
+          <span class="grow">
+            <span class="rec-name">GAD-7 · 焦虑筛查量表</span>
+            <span class="rec-meta"><span class="mono">10-23 10:59</span> · 已完成</span>
+          </span>
+          <span class="rec-badge">低风险</span>
+          <span class="rec-go">›</span>
+        </li>
+      </ul>
+    </div>
+
+    <!-- ② 服务引导 + 四项保障（新增） -->
+    <div class="bottom-col">
+      <div class="card care">
+        <span class="note">0.95fr · 349</span>
+        <svg class="care-plant" viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M50 94V42"/>
+          <path d="M50 60C33 60 24 47 24 32c17 0 26 12 26 28Z"/>
+          <path d="M50 48c0-15 9-28 26-28 0 15-9 28-26 28Z"/>
+          <path d="M50 76c-12 0-19-8-19-19 12 0 19 6 19 19Z"/>
+        </svg>
+        <h3 class="care-title">每一次倾诉，<br />都是向更好的自己靠近</h3>
+        <p class="care-desc">如果你感到焦虑、压力或情绪低落，请不要独自承受，我们在这里。</p>
+        <a class="care-cta" href="#">了解心理健康服务 <span>→</span></a>
+      </div>
+
+      <!--
+        四项保障。说明文字全部 ≤7 字：中栏只有 365px，四块各 80px，
+        再长一个字就会折行，四条高度立刻不一致（第一条两行、其余一行）。
+      -->
+      <div class="feat">
+        <div class="ft">
+          <span class="ft-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 3.5 5 6.2v5.3c0 4.2 2.9 7.7 7 9 4.1-1.3 7-4.8 7-9V6.2Z"/>
+              <path d="m9.2 12 2 2 3.6-3.8"/>
+            </svg>
+          </span>
+          <span class="ft-title">专业保障</span>
+          <span class="ft-desc">医生与咨询师</span>
+        </div>
+
+        <div class="ft">
+          <span class="ft-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="4.5" y="10.5" width="15" height="9.5" rx="2.6"/>
+              <path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/>
+            </svg>
+          </span>
+          <span class="ft-title">隐私保护</span>
+          <span class="ft-desc">信息加密存储</span>
+        </div>
+
+        <div class="ft">
+          <span class="ft-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20.4 8.6a4.4 4.4 0 0 0-7.5-3.1l-.9.9-.9-.9A4.4 4.4 0 0 0 3.6 8.6c0 4.1 4.2 6.8 8.4 10.2 4.2-3.4 8.4-6.1 8.4-10.2Z"/>
+            </svg>
+          </span>
+          <span class="ft-title">温暖陪伴</span>
+          <span class="ft-desc">全流程关怀</span>
+        </div>
+
+        <div class="ft">
+          <span class="ft-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M13.2 3 6 13.6h4.8L10.4 21 18 10.4h-4.9Z"/>
+            </svg>
+          </span>
+          <span class="ft-title">便捷高效</span>
+          <span class="ft-desc">在线预约响应</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ③ 运营 Banner：位置与格式都不动 -->
+    <div class="banner">
+      <span class="note">1.45fr · stretch</span>
+      <div class="banner-label">运营 Banner</div>
+      <div class="banner-sub">1200 × 480 · 2.5 : 1</div>
+      <div class="banner-hint">本栏 532 × 273 ≈ 1.95 : 1 · cover 两侧各裁约 11%</div>
+      <div class="banner-dots"><i class="on"></i><i></i><i></i></div>
+    </div>
+  </section>
+
+</main>
+
+<!-- ============ 控制条 ============ -->
+<div class="dock">
+  <span class="dock-label">首页改版 · 方案 A</span>
+  <button id="btnAnnot" type="button">标注</button>
+</div>
+
+<script>
+  const btn = document.getElementById('btnAnnot')
+  btn.addEventListener('click', () => {
+    document.body.classList.toggle('annot')
+    btn.classList.toggle('on', document.body.classList.contains('annot'))
+  })
+</script>
+</body>
+</html>

@@ -20,6 +20,7 @@ Phase 3（RAG 离线管道，MySQL↔Milvus `chunk_id` 一致）。
 | 主题 | 关键点 |
 |---|---|
 | **预约问诊功能（10-23 进行中）** | 原型 `.workbuddy/demo/appointment-preview.html` 已定稿（居民端一二级 / 医生端配置 / 通知页三段）。方案 `预约问诊开发方案.md`。**极简版：2 表**（`doctor_schedule` 带 `capacity` + `appointment`），不预生成号源，`BOOKED`/`CANCELLED` 两态落库。下一步写实施计划再开发 |
+| **首页改版（10-23 已实施待验收）** | `Home.vue` 整页重写（661→约 1080 行）+ `tokens.css` 加 7 个派生 token。**hero 288 玻璃卡吃掉 PageHeader**（全站唯一例外）；底部三栏 `1:0.95:1.45` = 367/349/532，**高度由中栏决定**（减记录条数不会变矮）；Banner 裁 11% 已获确认。规格 `首页改版设计稿.md`（§十五 记了 9 条实施差异） |
 | 共用展示组件（10-23） | `RecommendedDoctors.vue` / `AssessmentReport.vue` 各服务两处；**同数据两处出现就抽组件，只差文案抽函数**（`utils/assessment.ts#formatMatchBasis`） |
 | 问诊页按钮居中 + 下移（10-23 第 35/36 批） | `.report-ops` 用 `justify-content:center`（`margin:auto` 换行失效）；`.btn{flex:none}` 防挤扁；`.chat-doctors .report-ops{margin-top}` 单独补医生视图 |
 | 顶部导航三枚（10-22 第 33/34 批） | `.chat-nav` 透明玻璃胶囊，`top:27px`；**对话/医生/报告全是本页切视图不路由**；`NavKey='chat'\|'doctor'\|'report'`；医生、报告视图共用 `.chat-report,.chat-doctors` 容器边距 |

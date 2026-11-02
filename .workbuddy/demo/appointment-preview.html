@@ -1,0 +1,1553 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PsyCare · 预约流程 UI 预览</title>
+<style>
+/* ============================================================
+   色值全部来自 psycare-web/src/styles/tokens.css，逐项抄录，
+   原型里不发明任何新颜色。落地时这些会换回 var(--token)。
+   ============================================================ */
+:root{
+  --app-bg: linear-gradient(135deg,#c6d9f5 0%,#d3e1f8 100%);
+  --primary:#2563eb; --primary-dark:#1d4fd8; --primary-soft:#e7eefe;
+  --on-primary:#fff;
+  --card-bg:#fff; --card-border:#d5dfeb; --panel-bg:#eef3fa; --ctrl-border:#c3d0e0;
+  --chrome-bg-glass:rgba(255,255,255,.62); --glass-blur:18px;
+  --text-1:#0b1220; --text-2:#47536a; --text-3:#64748b; --ink:#22314b;
+  --accent-purple:#7c3aed;
+  --risk-a:#12b0a0; --risk-a-soft:#e0f9f5; --risk-a-ink:#0b7a6e;
+  --risk-b:#f09a0a; --risk-b-soft:#fef6e4; --risk-b-ink:#9a6200;
+  --risk-d:#e43b3b; --risk-d-soft:#fef4f2; --risk-d-ink:#b62b2b;
+  --font-serif:'Source Han Serif CN','Noto Serif SC','Songti SC',serif;
+  --font-sans:'Source Han Sans CN','Noto Sans SC','Microsoft YaHei','PingFang SC',system-ui,sans-serif;
+  --font-mono:'JetBrains Mono','SFMono-Regular',Consolas,monospace;
+  --space-block:32px; --space-card:20px; --space-inner:24px;
+  --radius-ctrl:10px; --radius-sm:16px; --radius-lg:28px; --radius-pill:999px;
+  --shadow-card:0 4px 14px rgba(11,18,32,.05);
+  --shadow-hover:0 10px 24px rgba(11,18,32,.09);
+  --shadow-primary:0 2px 10px rgba(37,99,235,.3);
+  --ease:cubic-bezier(.4,0,.2,1); --dur:.2s;
+  --grid-col-w:324px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  min-height:100vh;
+  background:var(--app-bg);
+  font-family:var(--font-sans);
+  color:var(--text-1);
+  -webkit-font-smoothing:antialiased;
+}
+button{font-family:inherit}
+.mono{font-family:var(--font-mono);font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+
+/* ============================ 布局壳 ============================ */
+.view{display:none}
+.view.is-on{display:block}
+
+/* 左侧 64px 玻璃窄栏（沿用 SideRail 的取值） */
+.rail{
+  position:fixed;left:0;top:0;bottom:0;z-index:5;
+  width:64px;display:flex;flex-direction:column;align-items:center;gap:8px;
+  padding:14px 0 16px;
+  background:var(--chrome-bg-glass);
+  backdrop-filter:blur(var(--glass-blur)) saturate(180%);
+  border-right:1px solid rgba(213,223,235,.7);
+}
+.rail-logo{
+  width:40px;height:40px;margin-bottom:14px;border-radius:var(--radius-ctrl);
+  display:flex;align-items:center;justify-content:center;
+  background:linear-gradient(135deg,var(--primary) 0%,var(--primary-dark) 100%);
+  color:#fff;font-weight:700;font-size:13px;letter-spacing:.02em;
+}
+.rail-item{
+  width:44px;height:44px;border:0;border-radius:var(--radius-ctrl);
+  display:flex;align-items:center;justify-content:center;
+  background:transparent;color:var(--ink);cursor:pointer;
+  transition:background var(--dur) var(--ease);
+}
+.rail-item:hover{background:rgba(255,255,255,.7)}
+.rail-item.is-active{background:#fff;box-shadow:var(--shadow-card)}
+.rail-item svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+.rail-spacer{flex:1}
+.rail-user{width:36px;height:36px;border-radius:50%;background:var(--primary-soft);color:var(--primary-dark);
+  display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600}
+
+.main{margin-left:64px;padding:28px;max-width:1344px}
+.page-footer{margin:32px 0 0;font-size:12px;line-height:1.8;color:var(--text-2)}
+
+/* 管理端顶栏（56px 玻璃） */
+.topbar{
+  position:sticky;top:0;z-index:4;margin:-28px -28px 24px;
+  height:56px;display:flex;align-items:center;justify-content:space-between;
+  padding:0 28px;
+  background:var(--chrome-bg-glass);
+  backdrop-filter:blur(var(--glass-blur)) saturate(180%);
+  border-bottom:1px solid rgba(213,223,235,.75);
+}
+.crumb{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-3)}
+.crumb b{color:var(--text-1);font-weight:600}
+.crumb .sep{color:var(--ctrl-border)}
+.topbar-right{display:flex;align-items:center;gap:10px;font-size:12.5px;color:var(--text-2)}
+.badge-role{padding:3px 9px;border-radius:var(--radius-pill);background:var(--primary-soft);color:var(--primary-dark);font-weight:600;font-size:11.5px}
+
+/* ============================ 通用件 ============================ */
+.page-header{
+  display:flex;align-items:center;justify-content:space-between;gap:20px;
+  padding:16px 22px;margin-bottom:var(--space-block);
+  background:var(--card-bg);border:1px solid var(--card-border);
+  border-radius:var(--radius-sm);box-shadow:var(--shadow-card);
+}
+.page-header h1{margin:0;font-family:var(--font-serif);font-size:23px;font-weight:700;line-height:1.3;color:var(--text-1)}
+.page-header .subtitle{margin:4px 0 0;font-size:13px;line-height:1.6;color:var(--text-3)}
+.page-header .extra{display:flex;align-items:center;gap:10px;flex:none}
+
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:6px;
+  height:40px;padding:0 18px;border-radius:var(--radius-pill);
+  font-size:14px;font-weight:600;cursor:pointer;white-space:nowrap;
+  transition:background var(--dur) var(--ease),border-color var(--dur) var(--ease),color var(--dur) var(--ease);
+}
+.btn svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+.btn-primary{border:1px solid var(--primary);background:var(--primary);color:var(--on-primary);box-shadow:var(--shadow-primary)}
+.btn-primary:hover{background:var(--primary-dark);border-color:var(--primary-dark)}
+.btn-ghost{border:1px solid var(--ctrl-border);background:var(--card-bg);color:var(--text-2)}
+.btn-ghost:hover{border-color:var(--primary);color:var(--primary-dark)}
+.btn-sm{height:36px;padding:0 15px;font-size:13px}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+
+/* ============================ 居民端 ============================ */
+.dept-chip{
+  height:34px;padding:0 16px;border:1px solid transparent;border-radius:var(--radius-pill);
+  background:transparent;color:var(--text-2);font-size:13.5px;cursor:pointer;
+  transition:background var(--dur) var(--ease),color var(--dur) var(--ease),border-color var(--dur) var(--ease);
+}
+.dept-chip:hover{background:var(--panel-bg)}
+.dept-chip.active{background:var(--primary);border-color:var(--primary);color:var(--on-primary);font-weight:600}
+.dept-chip .n{margin-left:6px;font-size:11.5px;opacity:.75}
+
+/* 两级布局：左一级 200px，右二级自适应 */
+.split{display:grid;grid-template-columns:200px minmax(0,1fr);gap:var(--space-card);align-items:start}
+
+/* 一级菜单（科室 / 我的预约） */
+.subnav{
+  position:sticky;top:28px;
+  padding:8px;background:var(--card-bg);border:1px solid var(--card-border);
+  border-radius:var(--radius-sm);box-shadow:var(--shadow-card);
+}
+.subnav-title{margin:8px 10px 6px;font-size:11.5px;font-weight:600;letter-spacing:.06em;color:var(--text-3)}
+.subnav-item{
+  display:flex;align-items:center;gap:9px;width:100%;height:38px;padding:0 10px;
+  border:0;border-radius:var(--radius-ctrl);background:transparent;cursor:pointer;
+  color:var(--text-2);font-family:inherit;font-size:13.5px;text-align:left;
+  transition:background var(--dur) var(--ease),color var(--dur) var(--ease);
+}
+.subnav-item:hover{background:var(--panel-bg)}
+.subnav-item .n{margin-left:auto;font-size:11.5px;color:var(--text-3)}
+/* 选中：--primary-soft 底 + --primary-dark 字（约 5.5:1），左缘 3px 主色条标出当前层级 */
+.subnav-item.is-on{
+  background:var(--primary-soft);color:var(--primary-dark);font-weight:600;
+  box-shadow:inset 3px 0 0 var(--primary);
+}
+.subnav-item.is-on .n{color:var(--primary-dark);opacity:.75}
+.subnav-item svg{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round}
+.subnav-sep{height:1px;margin:8px 10px;background:var(--card-border)}
+
+/* 二级内容 */
+.subcontent{min-width:0}
+.search-bar{
+  display:flex;align-items:center;gap:10px;margin-bottom:var(--space-card);
+  padding:10px 12px;background:var(--card-bg);border:1px solid var(--card-border);
+  border-radius:var(--radius-sm);box-shadow:var(--shadow-card);
+}
+.search-icon{flex:none;display:flex;color:var(--text-3)}
+.search-icon svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round}
+.search-input{
+  flex:1;min-width:0;height:36px;border:0;background:transparent;outline:none;
+  font-family:inherit;font-size:13.5px;color:var(--text-1);
+}
+.search-input::placeholder{color:var(--text-3)}
+
+/* 医生横条卡：头像 / 资料 / 右侧操作 —— 比网格卡更适合「一屏看多人」 */
+.doc-list{display:flex;flex-direction:column;gap:12px}
+.doc-row{
+  display:flex;align-items:center;gap:16px;padding:18px 20px;
+  background:var(--card-bg);border:1px solid var(--card-border);
+  border-radius:var(--radius-sm);box-shadow:var(--shadow-card);
+  transition:border-color var(--dur) var(--ease),box-shadow var(--dur) var(--ease);
+}
+.doc-row:hover{border-color:var(--primary);box-shadow:var(--shadow-hover)}
+.avatar{
+  width:52px;height:52px;flex:none;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;font-size:17px;font-weight:600;
+  background:var(--primary-soft);color:var(--primary-dark);
+}
+.avatar.is-purple{background:#f2ecfe;color:var(--accent-purple)}
+.doc-main{flex:1;min-width:0}
+.doc-name{margin:0;display:flex;align-items:baseline;flex-wrap:wrap;gap:8px;font-size:16px;font-weight:600;color:var(--text-1)}
+.dc-title{padding:2px 8px;border-radius:var(--radius-pill);background:var(--primary-soft);color:var(--primary-dark);font-size:11.5px;font-weight:500}
+.doc-dept{font-size:12.5px;color:var(--text-3)}
+.doc-good{margin:7px 0 0;font-size:12.5px;line-height:1.6;color:var(--text-2);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.doc-good b{color:var(--text-1);font-weight:500}
+.doc-meta{margin:6px 0 0;display:flex;align-items:center;flex-wrap:wrap;gap:12px;font-size:12px;color:var(--text-3)}
+.doc-meta .star{color:var(--text-1);font-weight:600}
+.doc-meta .free{color:var(--risk-a-ink);font-weight:600}
+.doc-op{flex:none;display:flex;flex-direction:column;gap:8px;align-items:stretch}
+.doc-op .btn{min-width:96px}
+
+/* 预约流程：左医生摘要 + 右主面板 */
+.back-link{
+  display:inline-flex;align-items:center;gap:4px;height:34px;padding:0 12px 0 6px;margin-bottom:14px;
+  border:0;border-radius:var(--radius-pill);background:transparent;cursor:pointer;
+  color:var(--text-2);font-family:inherit;font-size:13px;
+  transition:background var(--dur) var(--ease),color var(--dur) var(--ease);
+}
+.back-link:hover{background:var(--panel-bg);color:var(--text-1)}
+.back-link svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round}
+
+.bk-layout{display:grid;grid-template-columns:300px minmax(0,1fr);gap:var(--space-card);align-items:start}
+
+/* 左侧医生摘要卡 */
+.doctor-summary{
+  padding:22px 20px;background:var(--card-bg);border:1px solid var(--card-border);
+  border-radius:var(--radius-sm);box-shadow:var(--shadow-card);text-align:center;
+}
+.doctor-summary .avatar{width:68px;height:68px;margin:0 auto 12px;font-size:22px}
+.ds-name{margin:0;font-size:17px;font-weight:600;color:var(--text-1)}
+.ds-meta{margin:6px 0 0;font-size:12.5px;color:var(--text-3)}
+.ds-line{height:1px;margin:16px 0;background:var(--card-border)}
+.ds-row{display:flex;justify-content:space-between;gap:12px;padding:5px 0;font-size:12.5px;text-align:left}
+.ds-row span{color:var(--text-3)}
+.ds-row b{color:var(--text-1);font-weight:600;text-align:right}
+.ds-good{margin:14px 0 0;font-size:12.5px;line-height:1.75;color:var(--text-2);text-align:left}
+
+.footnote{margin:var(--space-block) 0 0;font-size:12px;line-height:1.8;color:var(--text-2)}
+.footnote .link{color:var(--primary-dark);text-decoration:underline;cursor:pointer}
+
+/* ============================ 预约流程 ============================ */
+/* 遮罩与关闭键：通知详情弹层仍在用，保留 */
+.mask{
+  position:fixed;inset:0;z-index:40;display:none;
+  align-items:center;justify-content:center;padding:24px;
+  background:rgba(11,18,32,.34);
+}
+.mask.is-open{display:flex}
+.m-close{width:32px;height:32px;flex:none;border:1px solid var(--ctrl-border);border-radius:var(--radius-ctrl);
+  background:var(--card-bg);color:var(--text-2);cursor:pointer;font-size:16px;line-height:1}
+.m-close:hover{border-color:var(--primary);color:var(--primary)}
+
+/* 步骤条：现在是页面级元素，不再是弹窗顶部的一条 */
+.steps{display:flex;align-items:center;gap:10px;margin-bottom:var(--space-card);font-size:12px;color:var(--text-3)}
+.steps .st{display:flex;align-items:center;gap:6px}
+.steps .dot{width:19px;height:19px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  background:var(--panel-bg);color:var(--text-3);font-size:10.5px;font-weight:700}
+.steps .st.on .dot{background:var(--primary);color:var(--on-primary)}
+.steps .st.on{color:var(--text-1);font-weight:600}
+.steps .bar{flex:1;height:1px;background:var(--card-border)}
+
+/* 日期横排 */
+.day-row{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;margin-bottom:22px}
+.day{
+  padding:10px 4px;border:1px solid var(--card-border);border-radius:var(--radius-ctrl);
+  background:var(--card-bg);cursor:pointer;text-align:center;
+  transition:border-color var(--dur) var(--ease),background var(--dur) var(--ease),color var(--dur) var(--ease);
+}
+.day:hover{border-color:var(--primary)}
+.day .wd{display:block;font-size:11px;color:var(--text-3)}
+.day .md{display:block;margin-top:3px;font-size:13.5px;font-weight:600;color:var(--text-1)}
+.day .free{display:block;margin-top:4px;font-size:10.5px;color:var(--risk-a-ink)}
+.day.is-on{border-color:var(--primary);background:var(--primary);box-shadow:var(--shadow-primary)}
+.day.is-on .wd,.day.is-on .md,.day.is-on .free{color:var(--on-primary)}
+.day.is-off{background:var(--panel-bg);border-color:transparent;cursor:not-allowed;opacity:.6}
+.day.is-off .md,.day.is-off .free{color:var(--text-3)}
+
+/* 时段格 */
+.slot-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:18px}
+.slot{
+  position:relative;padding:11px 10px;border:1px solid var(--card-border);border-radius:var(--radius-ctrl);
+  background:var(--card-bg);cursor:pointer;text-align:left;
+  transition:border-color var(--dur) var(--ease),background var(--dur) var(--ease),box-shadow var(--dur) var(--ease);
+}
+.slot:hover:not(.is-full){border-color:var(--primary)}
+.slot .t{display:block;font-size:13px;font-weight:600;color:var(--text-1)}
+.slot .r{display:block;margin-top:4px;font-size:11px;color:var(--text-3)}
+.slot .r b{color:var(--risk-a-ink);font-weight:600}
+.slot.is-on{border-color:var(--primary);background:var(--primary-soft);box-shadow:inset 0 0 0 1px var(--primary)}
+.slot.is-on .t{color:var(--primary-dark)}
+.slot.is-full{background:var(--panel-bg);border-color:transparent;cursor:not-allowed}
+.slot.is-full .t{color:var(--text-3);text-decoration:line-through}
+.slot .full-tag{
+  position:absolute;top:8px;right:8px;padding:1px 6px;border-radius:var(--radius-pill);
+  background:var(--card-bg);color:var(--text-3);font-size:10px;border:1px solid var(--card-border);
+}
+
+/* 表单 */
+.field{margin-bottom:16px}
+.field label{display:block;margin-bottom:7px;font-size:12.5px;color:var(--text-2)}
+.field label i{color:var(--risk-d-ink);font-style:normal;margin-left:2px}
+.field label .sub{margin-left:8px;font-size:11.5px;color:var(--text-3)}
+.input,.textarea{
+  width:100%;border:1px solid var(--ctrl-border);border-radius:var(--radius-ctrl);
+  padding:10px 12px;font-family:inherit;font-size:13.5px;color:var(--text-1);background:var(--card-bg);
+  outline:none;transition:border-color var(--dur) var(--ease),box-shadow var(--dur) var(--ease);
+}
+.input:focus,.textarea:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(37,99,235,.12)}
+.textarea{resize:vertical;min-height:72px;line-height:1.7}
+
+.tip{
+  display:flex;gap:8px;padding:10px 12px;margin:2px 0 6px;
+  background:var(--panel-bg);border-radius:var(--radius-ctrl);
+  font-size:12px;line-height:1.7;color:var(--text-2);
+}
+.tip svg{width:14px;height:14px;flex:none;margin-top:2px;stroke:var(--primary);fill:none;stroke-width:1.9}
+
+/* 知情同意：心理健康场景的合规底线，未勾选不允许提交 */
+.agree{
+  display:flex;align-items:flex-start;gap:9px;margin-top:4px;padding:12px;
+  background:var(--panel-bg);border-radius:var(--radius-ctrl);
+  font-size:12.5px;line-height:1.7;color:var(--text-2);cursor:pointer;
+}
+.agree input{flex:none;width:15px;height:15px;margin:2px 0 0;accent-color:var(--primary);cursor:pointer}
+.agree b{color:var(--text-1);font-weight:600}
+
+/* 面板底部操作条（与 panel-head 同一套描边语言） */
+.panel-foot{
+  display:flex;align-items:center;gap:10px;
+  padding:14px 20px;border-top:1px solid var(--card-border);
+}
+.panel-foot .sum{flex:1;min-width:0;font-size:12px;color:var(--text-3);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.panel-foot .sum b{color:var(--text-1)}
+
+/* 成功态 */
+.done{
+  max-width:520px;margin:0 auto;padding:36px 28px 28px;text-align:center;
+  background:var(--card-bg);border:1px solid var(--card-border);
+  border-radius:var(--radius-lg);box-shadow:var(--shadow-card);
+}
+.done-mark{
+  width:62px;height:62px;margin:0 auto 16px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  background:var(--risk-a-soft);color:var(--risk-a-ink);
+}
+.done-mark svg{width:28px;height:28px;stroke:currentColor;fill:none;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.done h2{margin:0 0 6px;font-family:var(--font-serif);font-size:20px;color:var(--text-1)}
+.done > p{margin:0 0 20px;font-size:13px;color:var(--text-2)}
+.receipt{padding:16px 18px;text-align:left;background:var(--panel-bg);border-radius:var(--radius-sm)}
+.receipt .row{display:flex;justify-content:space-between;gap:12px;padding:6px 0;font-size:12.5px}
+.receipt .row span{color:var(--text-3)}
+.receipt .row b{color:var(--text-1);font-weight:600;text-align:right}
+.receipt .hr{height:1px;margin:6px 0;background:var(--card-border)}
+.tip-inline{margin:14px 0 0;font-size:12px;color:var(--text-3)}
+.tip-inline b{color:var(--text-2);font-weight:600}
+.done-ops{display:flex;gap:10px;justify-content:center;margin-top:22px}
+.done-ops .btn{min-width:132px}
+
+/* ============================ 医生端 · 预约配置 ============================ */
+.doc-layout{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:var(--space-card);align-items:start}
+@media (max-width:1180px){.doc-layout{grid-template-columns:1fr}}
+
+.week-strip{display:grid;grid-template-columns:repeat(7,1fr);gap:10px;margin-bottom:var(--space-card)}
+.wk{
+  padding:12px 10px;background:var(--card-bg);border:1px solid var(--card-border);
+  border-radius:var(--radius-sm);box-shadow:var(--shadow-card);
+}
+.wk .wd{font-size:11.5px;color:var(--text-3)}
+.wk .n{margin-top:6px;font-size:19px;font-weight:700;color:var(--text-1);line-height:1}
+.wk .n small{font-size:11px;font-weight:500;color:var(--text-3);margin-left:3px}
+.wk .d{margin-top:8px;font-size:11.5px;color:var(--text-2)}
+.wk.is-empty .n{color:var(--text-3)}
+.wk.is-empty .d{color:var(--text-3)}
+
+.panel{background:var(--card-bg);border:1px solid var(--card-border);border-radius:var(--radius-sm);box-shadow:var(--shadow-card)}
+.panel-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 20px;border-bottom:1px solid var(--card-border)}
+.panel-head h2{margin:0;font-family:var(--font-sans);font-size:15px;font-weight:600;color:var(--text-1)}
+.panel-head .hint{font-size:12px;color:var(--text-3)}
+.panel-body{padding:6px 20px 20px}
+
+table.sched{width:100%;border-collapse:collapse}
+table.sched th{
+  padding:10px 8px;text-align:left;font-size:11.5px;font-weight:600;color:var(--text-3);
+  border-bottom:1px solid var(--card-border);white-space:nowrap;
+}
+table.sched td{padding:10px 8px;border-bottom:1px solid var(--panel-bg);vertical-align:middle}
+table.sched tr:last-child td{border-bottom:0}
+table.sched tr.is-off td{opacity:.5}
+select.sel,.input-time,.input-num{
+  height:34px;border:1px solid var(--ctrl-border);border-radius:var(--radius-ctrl);
+  background:var(--card-bg);color:var(--text-1);font-family:inherit;font-size:13px;
+  padding:0 8px;outline:none;
+}
+select.sel:focus,.input-time:focus,.input-num:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(37,99,235,.12)}
+select.sel{min-width:82px}
+.input-time{width:104px}
+.input-num{width:66px;text-align:center}
+.unit{font-size:12px;color:var(--text-3);margin-left:6px}
+
+/* 开关 */
+.sw{position:relative;display:inline-block;width:38px;height:22px;flex:none}
+.sw input{position:absolute;opacity:0;width:0;height:0}
+.sw i{
+  position:absolute;inset:0;border-radius:var(--radius-pill);background:var(--ctrl-border);
+  transition:background var(--dur) var(--ease);cursor:pointer;
+}
+.sw i::after{
+  content:'';position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;
+  background:#fff;box-shadow:0 1px 3px rgba(11,18,32,.2);transition:transform var(--dur) var(--ease);
+}
+.sw input:checked + i{background:var(--primary)}
+.sw input:checked + i::after{transform:translateX(16px)}
+
+.icon-btn{
+  width:30px;height:30px;border:1px solid transparent;border-radius:var(--radius-ctrl);
+  background:transparent;color:var(--text-3);cursor:pointer;display:inline-flex;
+  align-items:center;justify-content:center;
+}
+.icon-btn svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round}
+.icon-btn:hover{border-color:var(--card-border);color:var(--risk-d-ink);background:var(--risk-d-soft)}
+.add-row{
+  display:flex;align-items:center;justify-content:center;gap:8px;width:100%;
+  margin-top:14px;padding:11px;border:1px dashed var(--ctrl-border);border-radius:var(--radius-ctrl);
+  background:transparent;color:var(--text-2);font-size:13px;font-weight:600;cursor:pointer;
+  transition:border-color var(--dur) var(--ease),color var(--dur) var(--ease),background var(--dur) var(--ease);
+}
+.add-row:hover{border-color:var(--primary);color:var(--primary-dark);background:var(--primary-soft)}
+
+/* 右侧说明栏 */
+.side-card{padding:18px 18px 16px;background:var(--card-bg);border:1px solid var(--card-border);
+  border-radius:var(--radius-sm);box-shadow:var(--shadow-card);margin-bottom:14px}
+.side-card h3{margin:0 0 10px;font-family:var(--font-sans);font-size:13.5px;font-weight:600;color:var(--text-1)}
+.side-card p{margin:0 0 8px;font-size:12.5px;line-height:1.75;color:var(--text-2)}
+.side-card p:last-child{margin-bottom:0}
+.side-card .kv{display:flex;justify-content:space-between;gap:10px;padding:7px 0;font-size:12.5px;
+  border-bottom:1px solid var(--panel-bg)}
+.side-card .kv:last-child{border-bottom:0}
+.side-card .kv span{color:var(--text-3)}
+.side-card .kv b{color:var(--text-1)}
+.side-card.is-accent{border-left:3px solid var(--primary)}
+.side-empty{margin:0;padding:14px;border-radius:var(--radius-ctrl);background:var(--panel-bg);
+  font-size:12.5px;line-height:1.7;color:var(--text-2);text-align:center}
+
+/* ============================ 通知页 ============================ */
+/* 筛选条与科室条同一套语言（白卡 + pill chip），这里只加选择器别名 */
+.dept-bar,.filter-bar{
+  display:flex;flex-wrap:wrap;gap:8px;padding:14px 18px;margin-bottom:var(--space-card);
+  background:var(--card-bg);border:1px solid var(--card-border);
+  border-radius:var(--radius-sm);box-shadow:var(--shadow-card);
+}
+
+.role-switch{display:flex;gap:4px;padding:4px;background:var(--panel-bg);border-radius:var(--radius-pill)}
+.role-switch button{
+  height:28px;padding:0 12px;border:0;border-radius:var(--radius-pill);background:transparent;
+  color:var(--text-2);font-size:12px;font-weight:600;cursor:pointer;
+  transition:background var(--dur) var(--ease),color var(--dur) var(--ease);
+}
+.role-switch button.on{background:var(--card-bg);color:var(--primary-dark);box-shadow:var(--shadow-card)}
+
+/*
+ * 列表卡：每一行结构完全一致 —— 未读点 / 固定宽标签 / 两行文字 / 箭头。
+ * 「不把信息一次铺开」是这一版的核心：列表只回答「是什么、什么时候、一句摘要」，
+ * 时段、诊室、单号、完整正文全部收进详情弹层。
+ * ⚠️ 行高必须一致：有的行三行、有的行一行，整页看起来就像没对齐的表格。
+ */
+.notice-card{
+  padding:8px;background:var(--card-bg);border:1px solid var(--card-border);
+  border-radius:var(--radius-lg);box-shadow:var(--shadow-card);
+}
+.notice-list{list-style:none;margin:0;padding:0}
+
+.notice-row{
+  display:flex;align-items:center;gap:12px;
+  padding:13px 14px 13px 12px;border-radius:var(--radius-ctrl);cursor:pointer;
+  transition:background var(--dur) var(--ease);
+}
+.notice-row:hover{background:var(--panel-bg)}
+/* 行间分隔线：不要用 --panel-bg —— 行悬停时行底正好变成那个值，线会消失 */
+.notice-row + .notice-row{box-shadow:inset 0 1px 0 color-mix(in srgb, var(--card-border) 65%, transparent)}
+.notice-row:focus-visible{outline:2px solid var(--primary);outline-offset:-2px}
+
+/* 未读的唯一强调：一个主色小圆点；已读保留同宽空位，标题左边界始终对齐 */
+.unread-dot{flex:none;width:8px;height:8px;border-radius:50%;background:transparent}
+.notice-row.is-unread .unread-dot{background:var(--primary)}
+
+/* 标签固定 46px：四种类型字数不同（预约/问诊/预警/系统），不固定列宽标题就对不齐 */
+.nt-tag{
+  flex:none;width:46px;text-align:center;padding:3px 0;
+  border:1px solid var(--card-border);border-radius:var(--radius-pill);
+  color:var(--text-2);font-size:11.5px;line-height:1.35;
+}
+.nt-tag.is-appt{border-color:transparent;background:var(--primary-soft);color:var(--primary-dark)}
+.nt-tag.is-alert{border-color:transparent;background:var(--risk-b-soft);color:var(--risk-b-ink)}
+
+.notice-main{flex:1;min-width:0}
+.notice-line{display:flex;align-items:baseline;gap:10px}
+.notice-title{flex:1;min-width:0;font-size:14px;font-weight:500;color:var(--text-1);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.notice-time{flex:none;font-size:12px;color:var(--text-3)}
+/* 摘要恒为一行：超长省略，保证每行总高一致 */
+.notice-summary{margin:4px 0 0;font-size:12.5px;line-height:1.5;color:var(--text-3);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+.notice-arrow{flex:none;color:var(--ctrl-border);font-size:17px;line-height:1;
+  transition:color var(--dur) var(--ease)}
+.notice-row:hover .notice-arrow{color:var(--primary)}
+
+/* ---------- 详情弹层：完整信息只在这里出现 ---------- */
+.nt-modal{
+  width:100%;max-width:440px;max-height:calc(100vh - 48px);overflow:auto;
+  padding:22px 24px 20px;
+  background:var(--card-bg);border-radius:var(--radius-lg);
+  box-shadow:0 24px 60px rgba(11,18,32,.22);
+}
+.ntm-head{display:flex;align-items:center;gap:10px}
+.ntm-head .nt-tag{width:auto;padding:3px 9px}
+.ntm-head h2{margin:0;flex:1;min-width:0;font-family:var(--font-serif);font-size:18px;font-weight:700;
+  color:var(--text-1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ntm-time{margin:10px 0 0;font-size:12px;color:var(--text-3)}
+.ntm-body{margin:14px 0 0;font-size:13.5px;line-height:1.8;color:var(--text-2)}
+.ntm-ops{display:flex;gap:10px;justify-content:flex-end;margin-top:20px}
+
+/*
+ * 预约信息块。
+ * ⚠️ 底色必须用 --card-bg 而不是 --panel-bg：行悬停时行底本身会变成 --panel-bg，
+ *    内嵌块再用同一个值就会「糊」进行底，整块结构消失。白底 + 描边反而在悬停时更清楚。
+ */
+.appt-block{
+  display:flex;align-items:center;gap:14px;margin-top:10px;padding:12px 14px;
+  background:var(--card-bg);border:1px solid var(--card-border);border-left:3px solid var(--primary);
+  border-radius:var(--radius-ctrl);
+}
+.date-chip{
+  flex:none;width:56px;padding:6px 0;text-align:center;
+  background:var(--primary-soft);border-radius:var(--radius-ctrl);
+}
+.date-chip .mon{display:block;font-size:10.5px;color:var(--primary-dark)}
+.date-chip .day{display:block;font-size:20px;font-weight:700;line-height:1.15;color:var(--primary-dark)}
+.date-chip .wd{display:block;font-size:10.5px;color:var(--primary-dark);opacity:.85}
+.appt-main{flex:1;min-width:0}
+.appt-when{font-size:13.5px;font-weight:600;color:var(--text-1)}
+.appt-meta{margin-top:4px;font-size:12px;color:var(--text-3)}
+.appt-no{margin-top:4px;font-size:11.5px;color:var(--text-3)}
+
+/* toast */
+.toast{  position:fixed;left:50%;bottom:88px;transform:translateX(-50%) translateY(8px);
+  padding:11px 20px;border-radius:var(--radius-pill);
+  background:#0b1220;color:#fff;font-size:13px;
+  opacity:0;pointer-events:none;transition:opacity .24s var(--ease),transform .24s var(--ease);
+  z-index:60;white-space:nowrap;
+}
+.toast.is-on{opacity:1;transform:translateX(-50%) translateY(0)}
+
+/* 底部切换胶囊 */
+.switch{
+  position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:50;
+  display:flex;gap:4px;padding:5px;
+  background:rgba(255,255,255,.82);backdrop-filter:blur(var(--glass-blur)) saturate(180%);
+  border:1px solid rgba(255,255,255,.9);border-radius:var(--radius-pill);
+  box-shadow:0 10px 30px rgba(11,18,32,.16);
+}
+.switch button{
+  height:36px;padding:0 18px;border:0;border-radius:var(--radius-pill);background:transparent;
+  color:var(--text-2);font-size:13px;font-weight:600;cursor:pointer;
+  transition:background var(--dur) var(--ease),color var(--dur) var(--ease);
+}
+.switch button.on{background:var(--primary);color:var(--on-primary)}
+
+/* 窄屏兜底 */
+@media (max-width:900px){
+  .main{margin-left:0;padding:16px 14px 96px}
+  .rail{display:none}
+  .topbar{margin:-16px -14px 18px;padding:0 14px}
+  /* 两级布局在窄屏塌成单列：一级菜单变成一行横向 chip（保留「科室」这一层的存在感） */
+  .split{grid-template-columns:1fr}
+  .subnav{position:static;display:flex;flex-wrap:wrap;gap:6px;padding:8px}
+  .subnav-title,.subnav-sep{display:none}
+  .subnav-item{width:auto;height:32px;padding:0 12px;border:1px solid var(--card-border);border-radius:var(--radius-pill)}
+  .subnav-item.is-on{box-shadow:none}
+  .doc-row{flex-wrap:wrap;padding:14px}
+  .doc-op{flex-direction:row;width:100%}
+  .doc-op .btn{flex:1}
+  .bk-layout{grid-template-columns:1fr}
+  .week-strip{grid-template-columns:repeat(4,1fr)}
+  .day-row{grid-template-columns:repeat(4,1fr)}
+  .slot-grid{grid-template-columns:repeat(2,1fr)}
+  .switch{padding:4px;gap:2px}
+  .switch button{height:32px;padding:0 10px;font-size:11.5px}
+  .appt-block{gap:10px;padding:10px}
+  .date-chip{width:48px}
+  .role-switch button{padding:0 9px;font-size:11px}
+  .page-header{flex-direction:column;align-items:flex-start}
+  .page-header .extra{width:100%;flex-wrap:wrap}
+}
+</style>
+</head>
+<body>
+
+<!-- ============================================================
+     一、居民端 · 医生列表 + 预约
+     ============================================================ -->
+<section class="view is-on" id="view-resident">
+  <aside class="rail">
+    <div class="rail-logo">心</div>
+    <button class="rail-item" title="首页">
+      <svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V20h13V9.5"/></svg>
+    </button>
+    <button class="rail-item" title="测评中心">
+      <svg viewBox="0 0 24 24"><rect x="4" y="3.5" width="16" height="17" rx="2.5"/><path d="M8 8.5h8M8 12.5h8M8 16.5h5"/></svg>
+    </button>
+    <button class="rail-item" title="AI 问诊">
+      <svg viewBox="0 0 24 24"><path d="M12 3.5l1.9 4.6 4.6 1.9-4.6 1.9L12 16.5l-1.9-4.6L5.5 10l4.6-1.9z"/><path d="M18.5 15.5l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9z"/></svg>
+    </button>
+    <button class="rail-item is-active" title="医生咨询">
+      <svg viewBox="0 0 24 24"><circle cx="9" cy="8.5" r="3.2"/><path d="M3.5 20c.6-3.4 2.8-5.4 5.5-5.4S14 16.6 14.6 20"/><path d="M17 6.5v6M20 9.5h-6"/></svg>
+    </button>
+    <button class="rail-item" title="我的消息">
+      <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="m4.5 7 7.5 6 7.5-6"/></svg>
+    </button>
+    <button class="rail-item" title="通知">
+      <svg viewBox="0 0 24 24"><path d="M6 9a6 6 0 0 1 12 0c0 4 1.5 5.5 1.5 5.5h-15S6 13 6 9Z"/><path d="M10 18a2 2 0 0 0 4 0"/></svg>
+    </button>
+    <div class="rail-spacer"></div>
+    <div class="rail-user">李</div>
+  </aside>
+
+  <main class="main">
+    <!-- ============ 视图 A：医生列表（一级：科室 / 二级：医生） ============ -->
+    <div id="listView">
+      <header class="page-header">
+        <div>
+          <h1>医生咨询</h1>
+          <p class="subtitle" id="headerSub">按科室挑选医生，可直接预约线下门诊</p>
+        </div>
+        <div class="extra">
+          <button class="btn btn-ghost btn-sm" onclick="toast('演示原型：我的预约页尚未画')">
+            <svg viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="16" rx="2.5"/><path d="M8 3v3M16 3v3M3.5 9.5h17"/></svg>
+            我的预约
+          </button>
+        </div>
+      </header>
+
+      <!--
+        两级布局：左一级（科室 / 我的预约），右二级（搜索 + 医生列表）。
+        参考图是「左栏菜单 + 右栏列表」，比原来的一排科室 chip 更适合科室多、医生多的情况 ——
+        chip 一行放不下就得换行，换行后与下方列表的横向关系就断了。
+      -->
+      <div class="split">
+        <aside class="subnav" id="subNav"></aside>
+
+        <section class="subcontent">
+          <div class="search-bar">
+            <span class="search-icon">
+              <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M16 16 21 21"/></svg>
+            </span>
+            <input class="search-input" id="searchInput" placeholder="搜索医生姓名、科室或擅长方向"
+                   onkeydown="if(event.key==='Enter')doSearch()" />
+            <button class="btn btn-primary btn-sm" onclick="doSearch()">搜索</button>
+          </div>
+
+          <div class="doc-list" id="docList"></div>
+
+          <p class="footnote">
+            预约成功后，<b>你和医生都会在「通知」里看到这条预约</b>。若需改期，请先取消再重新预约。
+          </p>
+        </section>
+      </div>
+    </div>
+
+    <!-- ============ 视图 B：预约（选时间 → 填信息 → 成功） ============ -->
+    <div id="bookView" style="display:none">
+      <button class="back-link" onclick="backToList()">
+        <svg viewBox="0 0 24 24"><path d="M14 6l-6 6 6 6"/></svg>
+        返回医生列表
+      </button>
+
+      <div class="steps" id="bkSteps">
+        <div class="st on" id="st1"><span class="dot">1</span>选择时间</div>
+        <span class="bar"></span>
+        <div class="st" id="st2"><span class="dot">2</span>填写信息</div>
+        <span class="bar"></span>
+        <div class="st" id="st3"><span class="dot">3</span>预约成功</div>
+      </div>
+
+      <!-- 步骤 1：左医生摘要 + 右时间选择 -->
+      <div class="bk-layout" id="bkTime">
+        <aside class="doctor-summary" id="bkDoc"></aside>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>选择就诊时间</h2>
+            <span class="hint mono" id="bkMonth">2026 年 10 月</span>
+          </div>
+          <div class="panel-body">
+            <div class="day-row" id="dayRow"></div>
+            <div class="slot-grid" id="slotGrid"></div>
+            <div class="tip">
+              <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 8.5v4.5M12 16h.01"/></svg>
+              <span>每个时段限 3 人，余量实时更新。提交后名额即被占用，若临时有事请先取消。</span>
+            </div>
+          </div>
+          <div class="panel-foot">
+            <span class="sum" id="sumText">尚未选择时段</span>
+            <button class="btn btn-ghost" onclick="backToList()">取消</button>
+            <button class="btn btn-primary" id="nextBtn" disabled onclick="goForm()">下一步</button>
+          </div>
+        </section>
+      </div>
+
+      <!-- 步骤 2：左医生+已选时间 + 右表单 -->
+      <div class="bk-layout" id="bkForm" style="display:none">
+        <aside class="doctor-summary" id="bkDoc2"></aside>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>填写就诊信息</h2>
+            <span class="hint">带 * 为必填</span>
+          </div>
+          <div class="panel-body">
+            <div class="field">
+              <label>就诊人姓名 <i>*</i></label>
+              <input class="input" id="fName" value="李静" />
+            </div>
+            <div class="field">
+              <label>手机号 <i>*</i><span class="sub">用于医生联系你，已从账号带出</span></label>
+              <input class="input" id="fPhone" value="138 0013 8000" />
+            </div>
+            <div class="field">
+              <label>想聊的话题 <span class="sub">选填，医生会提前看</span></label>
+              <textarea class="textarea" id="fReason" placeholder="例如：最近一个月入睡困难，白天注意力下降…"></textarea>
+            </div>
+            <label class="agree">
+              <input type="checkbox" id="agree" onchange="syncSubmit()" />
+              <span>我已阅读并同意 <b>《预约须知》</b>与<b>《隐私政策》</b>，并确认以上信息真实</span>
+            </label>
+          </div>
+          <div class="panel-foot">
+            <span class="sum" id="sumText2"></span>
+            <button class="btn btn-ghost" onclick="goTime()">上一步</button>
+            <button class="btn btn-primary" id="submitBtn" disabled onclick="submitBooking()">提交预约</button>
+          </div>
+        </section>
+      </div>
+
+      <!-- 步骤 3：成功 -->
+      <div class="done" id="bkDone" style="display:none">
+        <div class="done-mark">
+          <svg viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>
+        </div>
+        <h2>预约成功</h2>
+        <p>名额已为你保留，请按时到诊。</p>
+        <div class="receipt">
+          <div class="row"><span>医生</span><b id="rDoc">张医生</b></div>
+          <div class="row"><span>就诊时间</span><b id="rTime">2026-10-28 周三 10:00-10:30</b></div>
+          <div class="row"><span>就诊地点</span><b id="rRoom">心理咨询中心 1 诊室</b></div>
+          <div class="hr"></div>
+          <div class="row"><span>预约单号</span><b class="mono" id="rNo">YZ20261028-0007</b></div>
+        </div>
+        <p class="tip-inline">已给<b>你和医生</b>各发一条站内通知。</p>
+        <div class="done-ops">
+          <button class="btn btn-primary" onclick="backToList()">完成</button>
+          <button class="btn btn-ghost" onclick="switchView('notify')">去通知看看</button>
+        </div>
+      </div>
+    </div>
+  </main>
+</section>
+
+<!-- ============================================================
+     二、医生端 · 预约配置
+     ============================================================ -->
+<section class="view" id="view-doctor">
+  <aside class="rail">
+    <div class="rail-logo">心</div>
+    <button class="rail-item" title="工作台">
+      <svg viewBox="0 0 24 24"><rect x="3.5" y="4" width="17" height="16" rx="2.5"/><path d="M8 4v3M16 4v3M3.5 9.5h17"/></svg>
+    </button>
+    <button class="rail-item" title="工单">
+      <svg viewBox="0 0 24 24"><path d="M4 6.5h16M4 12h16M4 17.5h10"/></svg>
+    </button>
+    <button class="rail-item is-active" title="预约设置">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 8v4.5l3 1.8"/></svg>
+    </button>
+    <button class="rail-item" title="消息">
+      <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="m4.5 7 7.5 6 7.5-6"/></svg>
+    </button>
+    <div class="rail-spacer"></div>
+    <div class="rail-user">张</div>
+  </aside>
+
+  <main class="main" style="max-width:1180px">
+    <div class="topbar">
+      <div class="crumb">
+        <span>医生工作台</span><span class="sep">/</span><b>预约设置</b>
+      </div>
+      <div class="topbar-right">
+        <span class="badge-role">医生</span>
+        <span>张医生 · 心理科</span>
+      </div>
+    </div>
+
+    <header class="page-header">
+      <div>
+        <h1>预约设置</h1>
+        <p class="subtitle">设置每周固定的出诊时段，以及每个时段最多看几位患者</p>
+      </div>
+      <div class="extra">
+        <button class="btn btn-ghost btn-sm" onclick="toast('已恢复上次保存的设置')">撤销修改</button>
+        <button class="btn btn-primary btn-sm" onclick="toast('已保存，居民端可预约的时段已同步更新')">
+          <svg viewBox="0 0 24 24"><path d="M5 12.5 9.5 17 19 7"/></svg>
+          保存修改
+        </button>
+      </div>
+    </header>
+
+    <div class="week-strip" id="weekStrip"></div>
+
+    <div class="doc-layout">
+      <div class="panel">
+        <div class="panel-head">
+          <h2>出诊时段</h2>
+          <span class="hint">共 <b id="slotTotal">6</b> 个时段 · 每周可接诊 <b id="capTotal">18</b> 人</span>
+        </div>
+        <div class="panel-body">
+          <table class="sched">
+            <thead>
+              <tr>
+                <th style="width:96px">星期</th>
+                <th style="width:120px">开始</th>
+                <th style="width:120px">结束</th>
+                <th style="width:132px">每时段人数</th>
+                <th style="width:64px">启用</th>
+                <th style="width:48px"></th>
+              </tr>
+            </thead>
+            <tbody id="schedBody"></tbody>
+          </table>
+          <button class="add-row" onclick="addRow()">
+            <svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2"><path d="M12 5v14M5 12h14"/></svg>
+            添加一个时段
+          </button>
+        </div>
+      </div>
+
+      <div>
+        <div class="side-card is-accent">
+          <h3>今日预约</h3>
+          <div class="kv"><span>10:00-10:30</span><b>李静 · 已通知</b></div>
+          <div class="kv"><span>10:30-11:00</span><b>王磊 · 已通知</b></div>
+          <div class="kv"><span>14:00-14:30</span><b class="mono" style="color:var(--text-3)">空</b></div>
+          <p style="margin-top:10px;color:var(--text-3);font-size:12px">预约信息会同时发到「通知」，点开可看就诊人姓名与话题。</p>
+        </div>
+
+        <div class="side-card">
+          <h3>设置规则</h3>
+          <p>· 修改后<b>立即生效</b>，只影响尚未被预约的时段。</p>
+          <p>· 已有预约的时段即使关闭，也会保留原预约，不会自动取消。</p>
+          <p>· 每时段人数建议 1~3 人；面诊通常 30 分钟一位。</p>
+        </div>
+
+        <div class="side-card">
+          <h3>本周名额</h3>
+          <div class="kv"><span>已预约</span><b class="mono">5 / 18</b></div>
+          <div class="kv"><span>剩余</span><b class="mono">13</b></div>
+          <div class="kv"><span>停诊日期</span><b>无</b></div>
+        </div>
+      </div>
+    </div>
+  </main>
+</section>
+
+<!-- ============================================================
+     三、通知页（居民 / 医生两种视角，同一套视觉）
+     ============================================================ -->
+<section class="view" id="view-notify">
+  <aside class="rail">
+    <div class="rail-logo">心</div>
+    <button class="rail-item" title="首页">
+      <svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V20h13V9.5"/></svg>
+    </button>
+    <button class="rail-item" title="测评中心">
+      <svg viewBox="0 0 24 24"><rect x="4" y="3.5" width="16" height="17" rx="2.5"/><path d="M8 8.5h8M8 12.5h8M8 16.5h5"/></svg>
+    </button>
+    <button class="rail-item" title="AI 问诊">
+      <svg viewBox="0 0 24 24"><path d="M12 3.5l1.9 4.6 4.6 1.9-4.6 1.9L12 16.5l-1.9-4.6L5.5 10l4.6-1.9z"/><path d="M18.5 15.5l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9z"/></svg>
+    </button>
+    <button class="rail-item" title="医生咨询">
+      <svg viewBox="0 0 24 24"><circle cx="9" cy="8.5" r="3.2"/><path d="M3.5 20c.6-3.4 2.8-5.4 5.5-5.4S14 16.6 14.6 20"/><path d="M17 6.5v6M20 9.5h-6"/></svg>
+    </button>
+    <button class="rail-item" title="我的消息">
+      <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="m4.5 7 7.5 6 7.5-6"/></svg>
+    </button>
+    <button class="rail-item is-active" title="通知">
+      <svg viewBox="0 0 24 24"><path d="M6 9a6 6 0 0 1 12 0c0 4 1.5 5.5 1.5 5.5h-15S6 13 6 9Z"/><path d="M10 18a2 2 0 0 0 4 0"/></svg>
+    </button>
+    <div class="rail-spacer"></div>
+    <div class="rail-user">李</div>
+  </aside>
+
+  <main class="main" style="max-width:1040px">
+    <header class="page-header">
+      <div>
+        <h1>通知</h1>
+        <p class="subtitle" id="ntSub">预约、问诊与系统提醒都在这里</p>
+      </div>
+      <div class="extra">
+        <div class="role-switch">
+          <button class="on" id="roleResident" onclick="renderNotices('resident')">居民视角</button>
+          <button id="roleDoctor" onclick="renderNotices('doctor')">医生视角</button>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="toast('已把 3 条未读标为已读')">全部已读</button>
+      </div>
+    </header>
+
+    <nav class="filter-bar" id="ntBar"></nav>
+
+    <div class="notice-card">
+      <ul class="notice-list" id="noticeList"></ul>
+    </div>
+
+    <p class="footnote">
+      预约成功、取消、就诊提醒都会在这里留一条记录。
+      <b>医生与居民收到的是同一件事的两条通知</b>，各自只看到与自己相关的信息。
+    </p>
+  </main>
+</section>
+
+<!-- 通知详情：列表只给摘要，完整信息在这里 -->
+<div class="mask" id="ntMask">
+  <div class="nt-modal" role="dialog" aria-modal="true" aria-labelledby="ntmTitle">
+    <div class="ntm-head">
+      <span class="nt-tag" id="ntmTag">预约</span>
+      <h2 id="ntmTitle">预约成功</h2>
+      <button class="m-close" onclick="closeNotice()" aria-label="关闭">✕</button>
+    </div>
+    <p class="ntm-time mono" id="ntmTime"></p>
+    <p class="ntm-body" id="ntmBody"></p>
+    <div id="ntmAppt"></div>
+    <div class="ntm-ops" id="ntmOps"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<nav class="switch">
+  <button class="on" id="tabResident" onclick="switchView('resident')">居民端 · 医生列表</button>
+  <button id="tabDoctor" onclick="switchView('doctor')">医生端 · 预约设置</button>
+  <button id="tabNotify" onclick="switchView('notify')">通知页</button>
+</nav>
+
+<script>
+/* ============================================================
+   1. 数据（原型用的静态数据；字段与后端 VO 一一对应）
+   ============================================================ */
+const DEPTS = ['心理科','精神科','青少年心理','婚姻家庭','睡眠门诊'];
+
+const DOCTORS = [
+  { id:1, name:'张医生', title:'主任医师', dept:'心理科', rating:4.8, load:1283, room:'心理咨询中心 1 诊室',
+    tags:['焦虑','抑郁','情绪管理'], next:'10-28 周三 10:00', rest:4, color:'is-purple' },
+  { id:2, name:'李医生', title:'副主任医师', dept:'青少年心理', rating:4.6, load:896, room:'心理咨询中心 2 诊室',
+    tags:['青少年','亲子关系','学业压力'], next:'10-28 周三 14:00', rest:2, color:'' },
+  { id:3, name:'王医生', title:'主治医师', dept:'精神科', rating:4.6, load:642, room:'心理咨询中心 3 诊室',
+    tags:['睡眠','压力','情绪调节'], next:'10-29 周四 09:00', rest:6, color:'' },
+  { id:4, name:'陈医生', title:'副主任医师', dept:'婚姻家庭', rating:4.9, load:1532, room:'心理咨询中心 4 诊室',
+    tags:['亲密关系','家庭沟通'], next:'10-29 周四 15:00', rest:3, color:'is-purple' },
+  { id:5, name:'赵医生', title:'主治医师', dept:'睡眠门诊', rating:4.5, load:431, room:'心理咨询中心 5 诊室',
+    tags:['失眠','昼夜节律'], next:'10-30 周五 10:00', rest:1, color:'' },
+  { id:6, name:'孙医生', title:'主任医师', dept:'心理科', rating:4.9, load:2104, room:'心理咨询中心 1 诊室',
+    tags:['危机干预','创伤修复'], next:'', rest:0, color:'' }
+];
+
+/* 时段数据：真实实现里由 GET /schedule/doctor/{id}?date= 返回 */
+const SLOTS = {
+  default: [
+    { t:'09:00-09:30', left:3, cap:3 },
+    { t:'09:30-10:00', left:3, cap:3 },
+    { t:'10:00-10:30', left:2, cap:3 },
+    { t:'10:30-11:00', left:0, cap:3 },
+    { t:'14:00-14:30', left:3, cap:3 },
+    { t:'14:30-15:00', left:3, cap:3 }
+  ]
+};
+
+const DAYS = [
+  { wd:'周三', md:'10-28', free:6, off:false },
+  { wd:'周四', md:'10-29', free:4, off:false },
+  { wd:'周五', md:'10-30', free:6, off:false },
+  { wd:'周六', md:'10-31', free:0, off:true  },
+  { wd:'周日', md:'11-01', free:0, off:true  },
+  { wd:'周一', md:'11-02', free:6, off:false },
+  { wd:'周二', md:'11-03', free:5, off:false }
+];
+
+/* ============================================================
+   2. 居民端：一级菜单（科室）+ 二级列表（医生）
+   ============================================================ */
+let currentDept = '';
+let keyword = '';
+
+/*
+ * 一级菜单：科室分组。
+ * 参考图是「左栏菜单 + 右栏列表」—— 科室多起来之后，原来那排 chip 一行放不下要换行，
+ * 换行后与下方列表的横向对应关系就断了；左栏菜单无论多少科室都只占一列。
+ */
+function renderSubNav(){
+  const groups = [...new Set(DOCTORS.map(d => d.dept))];
+  const nav = document.getElementById('subNav');
+
+  nav.innerHTML =
+    `<p class="subnav-title">科室</p>` +
+    `<button class="subnav-item ${currentDept === '' ? 'is-on' : ''}" data-dept="">
+       全部科室<span class="n">${DOCTORS.length}</span>
+     </button>` +
+    groups.map(g => {
+      const n = DOCTORS.filter(d => d.dept === g).length;
+      return `<button class="subnav-item ${currentDept === g ? 'is-on' : ''}" data-dept="${g}">
+        ${g}<span class="n">${n}</span>
+      </button>`;
+    }).join('') +
+    `<div class="subnav-sep"></div>
+     <button class="subnav-item" onclick="toast('演示原型：我的预约页尚未画')">
+       <svg viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="16" rx="2.5"/><path d="M8 3v3M16 3v3M3.5 9.5h17"/></svg>
+       我的预约
+     </button>`;
+
+  /* 只给带 data-dept 的项绑事件：「我的预约」跳别处，不能套用科室筛选 */
+  nav.querySelectorAll('.subnav-item[data-dept]').forEach(b => {
+    b.addEventListener('click', () => {
+      currentDept = b.dataset.dept;
+      renderSubNav();
+      renderDocList();
+    });
+  });
+
+  document.getElementById('headerSub').textContent =
+    `${groups.length} 个科室 · ${DOCTORS.length} 位医生，可直接预约线下门诊`;
+}
+
+/* 二级列表：横条卡 —— 头像 / 资料 / 右侧操作，一屏能看四五位 */
+function renderDocList(){
+  const kw = keyword.trim();
+  const rows = DOCTORS.filter(d => {
+    const deptOk = !currentDept || d.dept === currentDept;
+    const kwOk = !kw || (d.name + d.dept + d.title + d.tags.join('')).includes(kw);
+    return deptOk && kwOk;
+  });
+
+  const list = document.getElementById('docList');
+
+  if (!rows.length){
+    list.innerHTML = `<div class="doc-row" style="justify-content:center;color:var(--text-3);font-size:13px">
+      没有匹配的医生，换个科室或关键词试试
+    </div>`;
+    return;
+  }
+
+  list.innerHTML = rows.map(d => `
+    <article class="doc-row">
+      <div class="avatar ${d.color}">${d.name.slice(0,1)}</div>
+
+      <div class="doc-main">
+        <h3 class="doc-name">
+          ${d.name}
+          <span class="dc-title">${d.title}</span>
+          <span class="doc-dept">${d.dept}</span>
+        </h3>
+        <p class="doc-good"><b>擅长：</b>${d.tags.join('、')}</p>
+        <p class="doc-meta">
+          <span>★ <span class="star mono">${d.rating.toFixed(1)}</span></span>
+          <span>${d.load} 人评价</span>
+          ${d.next
+            ? `<span class="free">最近可约 ${d.next} · 本周余 ${d.rest} 个时段</span>`
+            : `<span class="full">本周号源已约满</span>`}
+        </p>
+      </div>
+
+      <div class="doc-op">
+        <button class="btn btn-primary btn-sm" ${d.next ? '' : 'disabled'} onclick="goBook(${d.id})">预约</button>
+        <button class="btn btn-ghost btn-sm">先聊聊</button>
+      </div>
+    </article>
+  `).join('');
+}
+
+function doSearch(){
+  keyword = document.getElementById('searchInput').value || '';
+  renderDocList();
+}
+
+renderDocList();
+renderSubNav();
+
+/* ============================================================
+   3. 预约流程（页面级三步：选时间 → 填信息 → 成功）
+   ============================================================ */
+let curDoctor = null;
+let pickedDay = null;
+let pickedSlot = null;
+
+function goBook(id){
+  curDoctor = DOCTORS.find(d => d.id === id);
+  pickedDay = null;
+  pickedSlot = null;
+  keyword = '';
+  document.getElementById('searchInput').value = '';
+
+  document.getElementById('listView').style.display = 'none';
+  document.getElementById('bookView').style.display = '';
+
+  renderDocSummary('bkDoc');
+  renderDays();
+  renderSlots();
+  updateSum();
+  document.getElementById('agree').checked = false;
+  syncSubmit();
+  setStep(1);
+  window.scrollTo({ top: 0 });
+}
+
+function backToList(){
+  document.getElementById('bookView').style.display = 'none';
+  document.getElementById('listView').style.display = '';
+  window.scrollTo({ top: 0 });
+}
+
+/*
+ * 左侧医生摘要：选时间页与填信息页共用同一个渲染函数。
+ * 已选时间会追加在下面 —— 用户在两屏之间来回时，不用回想自己选了哪个时段。
+ */
+function renderDocSummary(elId){
+  const d = curDoctor;
+  const slot = pickedSlot !== null ? SLOTS.default[pickedSlot] : null;
+  const day = pickedDay !== null ? DAYS[pickedDay] : null;
+
+  const picked = (slot && day)
+    ? `<div class="ds-line"></div>
+       <div class="ds-row"><span>就诊时间</span><b class="mono">${day.md} ${day.wd} ${slot.t}</b></div>
+       <div class="ds-row"><span>剩余名额</span><b class="mono">${slot.left} / ${slot.cap}</b></div>`
+    : '';
+
+  document.getElementById(elId).innerHTML = `
+    <div class="avatar ${d.color}">${d.name.slice(0,1)}</div>
+    <h3 class="ds-name">${d.name}</h3>
+    <p class="ds-meta">${d.title} · ${d.dept}</p>
+    <div class="ds-line"></div>
+    <div class="ds-row"><span>评分</span><b class="mono">★ ${d.rating.toFixed(1)}</b></div>
+    <div class="ds-row"><span>评价</span><b class="mono">${d.load} 人</b></div>
+    <div class="ds-row"><span>诊室</span><b>${d.room}</b></div>
+    ${picked}
+    <p class="ds-good">擅长 ${d.tags.join('、')}。从事心理健康服务多年，注重与来访者建立稳定的信任关系。</p>
+  `;
+}
+
+function renderDays(){
+  document.getElementById('dayRow').innerHTML = DAYS.map((d, i) => `
+    <button class="day ${d.off ? 'is-off' : ''} ${pickedDay === i ? 'is-on' : ''}"
+            ${d.off ? 'disabled' : ''} onclick="pickDay(${i})">
+      <span class="wd">${d.wd}</span>
+      <span class="md">${d.md}</span>
+      <span class="free">${d.off ? '停诊' : '余 ' + d.free + ' 号'}</span>
+    </button>
+  `).join('');
+}
+
+function pickDay(i){
+  pickedDay = i;
+  pickedSlot = null;
+  renderDays();
+  renderSlots();
+  updateSum();
+}
+
+function renderSlots(){
+  const grid = document.getElementById('slotGrid');
+
+  if (pickedDay === null){
+    grid.innerHTML = `<p style="grid-column:1/-1;margin:0;padding:14px;border-radius:10px;background:var(--panel-bg);color:var(--text-3);font-size:12.5px;text-align:center">
+      请先选择上面的日期
+    </p>`;
+    return;
+  }
+
+  grid.innerHTML = SLOTS.default.map((s, i) => {
+    const full = s.left === 0;
+    return `<button class="slot ${full ? 'is-full' : ''} ${pickedSlot === i ? 'is-on' : ''}"
+      ${full ? 'disabled' : ''} onclick="pickSlot(${i})">
+      ${full ? '<span class="full-tag">已约满</span>' : ''}
+      <span class="t mono">${s.t}</span>
+      <span class="r">${full ? '本时段已满' : '余 <b>' + s.left + '</b> / ' + s.cap + ' 人'}</span>
+    </button>`;
+  }).join('');
+}
+
+function pickSlot(i){
+  pickedSlot = i;
+  renderSlots();
+  updateSum();
+}
+
+/* 底部操作条：「下一步」的可用性只取决于有没有选好日期 + 时段 */
+function updateSum(){
+  const ok = pickedDay !== null && pickedSlot !== null;
+  const s = ok ? SLOTS.default[pickedSlot] : null;
+  const d = ok ? DAYS[pickedDay] : null;
+
+  document.getElementById('sumText').innerHTML = ok
+    ? `<b>${d.md} ${d.wd}</b> · <b class="mono">${s.t}</b> · ${curDoctor.name}`
+    : '尚未选择时段';
+  document.getElementById('nextBtn').disabled = !ok;
+
+  if (ok) renderDocSummary('bkDoc');
+}
+
+/* step: 1 选时间 / 2 填信息 / 3 成功（成功页不显示步骤条） */
+function setStep(n){
+  document.getElementById('bkTime').style.display = n === 1 ? '' : 'none';
+  document.getElementById('bkForm').style.display = n === 2 ? '' : 'none';
+  document.getElementById('bkDone').style.display = n === 3 ? '' : 'none';
+  document.getElementById('bkSteps').style.display = n === 3 ? 'none' : '';
+
+  document.getElementById('st1').classList.toggle('on', n >= 1);
+  document.getElementById('st2').classList.toggle('on', n >= 2);
+  document.getElementById('st3').classList.toggle('on', n >= 3);
+}
+
+function goTime(){
+  renderDocSummary('bkDoc');
+  setStep(1);
+  window.scrollTo({ top: 0 });
+}
+
+function goForm(){
+  const s = SLOTS.default[pickedSlot];
+  const d = DAYS[pickedDay];
+  document.getElementById('sumText2').innerHTML =
+    `<b>${d.md} ${d.wd}</b> · <b class="mono">${s.t}</b> · ${curDoctor.name}`;
+  renderDocSummary('bkDoc2');
+  syncSubmit();
+  setStep(2);
+  window.scrollTo({ top: 0 });
+}
+
+/* 未勾选知情同意不允许提交 —— 心理健康场景的合规底线，不是可选项 */
+function syncSubmit(){
+  document.getElementById('submitBtn').disabled = !document.getElementById('agree').checked;
+}
+
+function submitBooking(){
+  const s = SLOTS.default[pickedSlot];
+  const d = DAYS[pickedDay];
+
+  document.getElementById('rDoc').textContent = `${curDoctor.name} · ${curDoctor.title}`;
+  document.getElementById('rTime').textContent = `2026-${d.md} ${d.wd} ${s.t}`;
+  document.getElementById('rRoom').textContent = curDoctor.room;
+  document.getElementById('rNo').textContent =
+    'YZ2026' + d.md.replace('-','') + '-00' + (Math.floor(Math.random()*8)+1);
+
+  setStep(3);
+  window.scrollTo({ top: 0 });
+  toast('预约成功，已给医生发去一条通知');
+}
+
+/* ============================================================
+   4. 医生端：预约配置
+   ============================================================ */
+const WEEK = ['周一','周二','周三','周四','周五','周六','周日'];
+let SCHED = [
+  { wd:'周一', from:'09:00', to:'11:00', cap:3, on:true },
+  { wd:'周三', from:'09:00', to:'11:00', cap:3, on:true },
+  { wd:'周三', from:'14:00', to:'16:00', cap:3, on:true },
+  { wd:'周五', from:'09:00', to:'11:30', cap:3, on:true },
+  { wd:'周五', from:'14:00', to:'15:30', cap:2, on:true },
+  { wd:'周六', from:'09:00', to:'10:00', cap:1, on:false }
+];
+
+function renderSched(){
+  const body = document.getElementById('schedBody');
+  body.innerHTML = SCHED.map((r, i) => `
+    <tr class="${r.on ? '' : 'is-off'}">
+      <td>
+        <select class="sel" onchange="SCHED[${i}].wd = this.value; renderWeek()">
+          ${WEEK.map(w => `<option ${w === r.wd ? 'selected' : ''}>${w}</option>`).join('')}
+        </select>
+      </td>
+      <td><input class="input-time mono" type="time" value="${r.from}" onchange="SCHED[${i}].from = this.value; renderWeek()" /></td>
+      <td><input class="input-time mono" type="time" value="${r.to}" onchange="SCHED[${i}].to = this.value; renderWeek()" /></td>
+      <td>
+        <input class="input-num mono" type="number" min="1" max="12" value="${r.cap}"
+               onchange="SCHED[${i}].cap = Math.max(1, Math.min(12, +this.value)); renderWeek()" />
+        <span class="unit">人</span>
+      </td>
+      <td>
+        <label class="sw"><input type="checkbox" ${r.on ? 'checked' : ''}
+          onchange="SCHED[${i}].on = this.checked; renderSched(); renderWeek()" /><i></i></label>
+      </td>
+      <td>
+        <button class="icon-btn" title="删除" onclick="delRow(${i})">
+          <svg viewBox="0 0 24 24"><path d="M5 7h14M9.5 7V5h5v2M7 7l.8 12h8.4L17 7"/></svg>
+        </button>
+      </td>
+    </tr>
+  `).join('');
+
+  // 汇总
+  const on = SCHED.filter(r => r.on);
+  const slots = on.reduce((n, r) => n + Math.max(1, Math.round(minutes(r.from, r.to) / 30)), 0);
+  const cap = on.reduce((n, r) => n + Math.max(1, Math.round(minutes(r.from, r.to) / 30)) * r.cap, 0);
+  document.getElementById('slotTotal').textContent = slots;
+  document.getElementById('capTotal').textContent = cap;
+  renderWeek();
+}
+
+function minutes(a, b){
+  const [h1, m1] = a.split(':').map(Number);
+  const [h2, m2] = b.split(':').map(Number);
+  return Math.max(0, (h2 * 60 + m2) - (h1 * 60 + m1));
+}
+
+function renderWeek(){
+  const strip = document.getElementById('weekStrip');
+  strip.innerHTML = WEEK.map(w => {
+    const rows = SCHED.filter(r => r.wd === w && r.on);
+    const slots = rows.reduce((n, r) => n + Math.max(1, Math.round(minutes(r.from, r.to) / 30)), 0);
+    const cap = rows.reduce((n, r) => n + Math.max(1, Math.round(minutes(r.from, r.to) / 30)) * r.cap, 0);
+    return `<div class="wk ${cap ? '' : 'is-empty'}">
+      <div class="wd">${w}</div>
+      <div class="n mono">${cap}<small>人</small></div>
+      <div class="d">${slots ? slots + ' 个时段' : '休息'}</div>
+    </div>`;
+  }).join('');
+}
+
+function addRow(){
+  SCHED.push({ wd:'周二', from:'09:00', to:'10:00', cap:2, on:true });
+  renderSched();
+  toast('已添加一个时段，记得点「保存修改」');
+}
+function delRow(i){
+  SCHED.splice(i, 1);
+  renderSched();
+  toast('已删除该时段');
+}
+
+let toastTimer = null;
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('is-on');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('is-on'), 2200);
+}
+
+/* ============================================================
+   5. 通知页（居民 / 医生两种视角）
+   ============================================================ */
+const NOTICES = {
+  resident: [
+    { id:1, type:'APPOINTMENT', unread:true, title:'预约成功', time:'今天 14:36',
+      summary:'张医生 · 10-28 周三 10:00-10:30',
+      body:'名额已为你保留，请提前 10 分钟到院。如需改期，请先在「我的预约」里取消，把名额让给其他人。',
+      op:'查看预约',
+      appt:{ mon:'10月', day:'28', wd:'周三', time:'10:00-10:30',
+             room:'心理咨询中心 1 诊室', no:'YZ20261028-0007' } },
+    { id:2, type:'CONSULT', unread:true, title:'张医生回复了你的消息', time:'今天 11:20',
+      summary:'“夜里醒了先别看表，起床时间固定更要紧。”',
+      body:'张医生：夜里醒了先别看表，起床时间固定比入睡时间更要紧。先按这个记一周，下次面诊我们再看记录。',
+      op:'去回复' },
+    { id:3, type:'APPOINTMENT', unread:false, title:'就诊提醒', time:'昨天 18:00',
+      summary:'明天 10:00 · 心理咨询中心 1 诊室',
+      body:'明天 10:00 你有一场面诊，请提前 10 分钟到院。若临时有事，请先在「我的预约」里取消。',
+      op:'查看预约',
+      appt:{ mon:'10月', day:'28', wd:'周三', time:'10:00-10:30',
+             room:'心理咨询中心 1 诊室', no:'YZ20261028-0007' } },
+    { id:4, type:'SYSTEM', unread:false, title:'测评报告已生成', time:'10-21 09:12',
+      summary:'PHQ-9 · 总分 12 分 · 中风险',
+      body:'你的 PHQ-9 测评已完成，总分 12 分，风险等级为中风险。可在「最近一次测评」里查看得分构成与建议。',
+      op:'查看报告' },
+    { id:5, type:'ALERT', unread:false, title:'情绪状态需要关注', time:'10-20 21:05',
+      summary:'建议与医生聊一聊，或拨打心理援助热线 12356',
+      body:'最近一次测评的风险等级为中风险。如果最近两周情绪持续低落，建议尽早与医生聊一聊；如有伤害自己的念头，请立即拨打心理援助热线 12356。',
+      op:'找医生' }
+  ],
+  doctor: [
+    { id:11, type:'APPOINTMENT', unread:true, title:'新预约 · 李静', time:'今天 14:36',
+      summary:'10-28 周三 10:00-10:30 · 1 诊室',
+      body:'通过居民端提交，已占用 10-28 10:00 的名额。就诊原因请在详情里查看。',
+      op:'查看详情',
+      appt:{ mon:'10月', day:'28', wd:'周三', time:'10:00-10:30',
+             who:'李静 · 138****8000', room:'1 诊室', no:'YZ20261028-0007' } },
+    { id:12, type:'APPOINTMENT', unread:true, title:'新预约 · 王磊', time:'今天 13:02',
+      summary:'10-28 周三 10:30-11:00 · 1 诊室',
+      op:'查看详情',
+      appt:{ mon:'10月', day:'28', wd:'周三', time:'10:30-11:00',
+             who:'王磊 · 139****2231', room:'1 诊室', no:'YZ20261028-0008' } },
+    { id:13, type:'APPOINTMENT', unread:false, title:'预约已取消 · 赵敏', time:'今天 09:40',
+      summary:'10-29 周四 14:00 的名额已释放',
+      body:'10-29 14:00 的预约已由居民取消，该时段名额已释放，可被其他人预约。',
+      op:'查看时段' },
+    { id:14, type:'CONSULT', unread:false, title:'李静发来一条消息', time:'昨天 20:15',
+      summary:'“医生，上次说的记录睡眠，我记了三天了。”',
+      body:'李静：医生，上次说的记录睡眠，我记了三天了。有两天是凌晨三点醒的，之后就睡不着。',
+      op:'去回复' },
+    { id:15, type:'SYSTEM', unread:false, title:'出诊设置已更新', time:'10-21 16:40',
+      summary:'周三下午时段 2 人 → 3 人，已对居民端生效',
+      body:'你修改了周三下午的出诊设置：每个时段可接诊人数由 2 人调整为 3 人，已对居民端生效。已产生的预约不受影响。' }
+  ]
+};
+
+const NT_META = {
+  APPOINTMENT: ['预约', 'is-appt'],
+  CONSULT: ['问诊', ''],
+  ALERT: ['预警', 'is-alert'],
+  SYSTEM: ['系统', '']
+};
+
+let ntRole = 'resident';
+let ntFilter = '';
+
+function renderNotices(role){
+  if (role) ntRole = role;
+  document.getElementById('roleResident').classList.toggle('on', ntRole === 'resident');
+  document.getElementById('roleDoctor').classList.toggle('on', ntRole === 'doctor');
+  document.getElementById('ntSub').textContent = ntRole === 'resident'
+    ? '预约、问诊与系统提醒都在这里'
+    : '患者预约与消息会第一时间送到这里';
+  ntFilter = '';
+  renderNtChips();
+  renderNtList();
+}
+
+function renderNtChips(){
+  const all = NOTICES[ntRole];
+  const bar = document.getElementById('ntBar');
+  const order = ['APPOINTMENT', 'CONSULT', 'ALERT', 'SYSTEM'];
+  bar.innerHTML =
+    `<button class="dept-chip ${ntFilter === '' ? 'active' : ''}" data-nt="">全部<span class="n">${all.length}</span></button>` +
+    order.filter(k => all.some(n => n.type === k)).map(k => {
+      const n = all.filter(x => x.type === k).length;
+      return `<button class="dept-chip ${ntFilter === k ? 'active' : ''}" data-nt="${k}">${NT_META[k][0]}<span class="n">${n}</span></button>`;
+    }).join('');
+
+  bar.querySelectorAll('.dept-chip').forEach(c => {
+    c.addEventListener('click', () => {
+      ntFilter = c.dataset.nt;
+      renderNtChips();
+      renderNtList();
+    });
+  });
+}
+
+/*
+ * 预约信息块：**只在详情弹层里出现**，列表里一律不铺 ——
+ * 列表一旦混进这种块，行高就会参差，整页看起来像没对齐的表格。
+ * 底色用 --card-bg 而不是 --panel-bg：弹层是白底，白块靠描边 + 主色左条立住，
+ * 块内文字仍落在白面上，--text-3 的 4.8:1 才成立。
+ */
+function apptBlock(a){
+  return `<div class="appt-block">
+    <div class="date-chip">
+      <span class="mon">${a.mon}</span>
+      <span class="day mono">${a.day}</span>
+      <span class="wd">${a.wd}</span>
+    </div>
+    <div class="appt-main">
+      <div class="appt-when mono">${a.time}</div>
+      <div class="appt-meta">${a.who ? a.who + ' · ' : ''}${a.room}</div>
+      <div class="appt-no mono">单号 ${a.no}</div>
+    </div>
+  </div>`;
+}
+
+/*
+ * 列表行：结构固定 —— 未读点 / 固定宽标签 / 标题+摘要 / 箭头。
+ * 每行只给「是什么、什么时候、一句摘要」，完整正文与预约信息在 openNotice() 里。
+ */
+function renderNtList(){
+  const rows = NOTICES[ntRole].filter(n => !ntFilter || n.type === ntFilter);
+  const list = document.getElementById('noticeList');
+
+  if (!rows.length){
+    list.innerHTML = `<li style="padding:36px 12px;text-align:center;font-size:13px;color:var(--text-3)">这一类还没有通知</li>`;
+    return;
+  }
+
+  list.innerHTML = rows.map(n => {
+    const [label, cls] = NT_META[n.type] || NT_META.SYSTEM;
+    return `<li class="notice-row ${n.unread ? 'is-unread' : ''}" tabindex="0" role="button"
+      onclick="openNotice(${n.id})"
+      onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openNotice(${n.id})}">
+      <span class="unread-dot"></span>
+      <span class="nt-tag ${cls}">${label}</span>
+      <div class="notice-main">
+        <div class="notice-line">
+          <span class="notice-title">${n.title}</span>
+          <span class="notice-time mono">${n.time}</span>
+        </div>
+        <p class="notice-summary">${n.summary}</p>
+      </div>
+      <span class="notice-arrow" aria-hidden="true">›</span>
+    </li>`;
+  }).join('');
+}
+
+/* ---------- 详情弹层 ---------- */
+function openNotice(id){
+  const n = NOTICES[ntRole].find(x => x.id === id);
+  if (!n) return;
+
+  const [label, cls] = NT_META[n.type] || NT_META.SYSTEM;
+  const tag = document.getElementById('ntmTag');
+  tag.className = 'nt-tag ' + cls;
+  tag.textContent = label;
+
+  document.getElementById('ntmTitle').textContent = n.title;
+  document.getElementById('ntmTime').textContent = n.time;
+
+  const body = document.getElementById('ntmBody');
+  body.textContent = n.body || '';
+  body.style.display = n.body ? '' : 'none';
+
+  const appt = document.getElementById('ntmAppt');
+  appt.innerHTML = n.appt ? apptBlock(n.appt) : '';
+  appt.style.display = n.appt ? '' : 'none';
+
+  document.getElementById('ntmOps').innerHTML =
+    `<button class="btn btn-ghost" onclick="closeNotice()">关闭</button>` +
+    (n.op ? `<button class="btn btn-primary" onclick="toast('演示原型，未接入跳转')">${n.op}</button>` : '');
+
+  document.getElementById('ntMask').classList.add('is-open');
+
+  /* 打开即已读：这是通知最常见的行为约定，列表圆点立刻消失 */
+  if (n.unread){ n.unread = false; renderNtList(); }
+}
+
+function closeNotice(){
+  document.getElementById('ntMask').classList.remove('is-open');
+}
+
+/* ============================================================
+   6. 两端切换
+   ============================================================ */
+function switchView(which){
+  ['resident', 'doctor', 'notify'].forEach(k => {
+    document.getElementById('view-' + k).classList.toggle('is-on', which === k);
+    const tab = document.getElementById('tab' + k[0].toUpperCase() + k.slice(1));
+    if (tab) tab.classList.toggle('on', which === k);
+  });
+  window.scrollTo({ top: 0 });
+  /* 离开居民端时把预约流程收回到列表：否则切回来还停在「填写信息」的半截状态 */
+  if (which !== 'resident') backToList();
+  closeNotice();
+}
+
+/* 点遮罩关闭通知详情（点弹层本体不关） */
+document.getElementById('ntMask').addEventListener('click', e => {
+  if (e.target.id === 'ntMask') closeNotice();
+});
+
+renderSched();
+renderNotices('resident');
+</script>
+</body>
+</html>
